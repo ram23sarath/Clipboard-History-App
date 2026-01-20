@@ -484,12 +484,28 @@ chrome.runtime.setUninstallURL('', async () => {
  * Service workers can be terminated after 30s of inactivity
  */
 const KEEP_ALIVE_INTERVAL = 20000; // 20 seconds
+let lastSupabasePing = Date.now();
+const SUPABASE_PING_INTERVAL = 3600000; // 1 hour
 
 setInterval(async () => {
     // Ping to keep alive, but only if user is authenticated
     const authenticated = await isAuthenticated();
     if (authenticated) {
         console.debug('CloudClip: Keep-alive ping');
+
+        // Periodically ping Supabase to prevent project pausing
+        const now = Date.now();
+        if (now - lastSupabasePing > SUPABASE_PING_INTERVAL) {
+            console.log('CloudClip: Pinging Supabase to prevent sleep...');
+            try {
+                const client = getSupabaseClient();
+                // Lightweight query just to touch the DB
+                await client.from('clipboard_items').select('count', { count: 'exact', head: true });
+                lastSupabasePing = now;
+            } catch (err) {
+                console.error('CloudClip: Supabase ping failed:', err);
+            }
+        }
     }
 }, KEEP_ALIVE_INTERVAL);
 
