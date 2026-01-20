@@ -19,11 +19,11 @@ export const CONFIG = {
 
   // Sync Settings
   SYNC: {
-    DEBOUNCE_MS: 1000,           // Delay before uploading after copy
+    DEBOUNCE_MS: 500,            // Reduced debounce time for snappier feel
     MAX_ITEMS: 50,               // Maximum items to display in popup
     FETCH_LIMIT: 50,             // Items to fetch from server
     RATE_LIMIT_WINDOW_MS: 60000, // Rate limit window (1 minute)
-    RATE_LIMIT_MAX_REQUESTS: 30, // Max requests per window
+    RATE_LIMIT_MAX_REQUESTS: 100, // Max requests per window (increased from 30)
     RETRY_ATTEMPTS: 3,           // Number of retry attempts
     RETRY_BASE_DELAY_MS: 1000,   // Base delay for exponential backoff
   },

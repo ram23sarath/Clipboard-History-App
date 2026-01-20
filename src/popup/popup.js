@@ -464,11 +464,8 @@ async function copyToClipboard(text, itemId) {
         const el = document.querySelector(`[data-id="${itemId}"]`);
         el?.classList.add('copying');
 
-        // Send to background to copy
-        await chrome.runtime.sendMessage({
-            type: 'COPY_TO_CLIPBOARD',
-            payload: { text }
-        });
+        // Copy directly in popup (this works because of the user gesture)
+        await navigator.clipboard.writeText(text);
 
         showToast('Copied to clipboard!', 'success');
 
@@ -547,6 +544,28 @@ async function handleAutoCapture(e) {
 
     try {
         if (enabled) {
+            // Request permissions directly in popup (requires user gesture)
+            // We request permissions and origins separately to ensure compatibility
+            const permissionsGranted = await chrome.permissions.request({
+                permissions: ['clipboardRead', 'scripting']
+            });
+
+            if (!permissionsGranted) {
+                e.target.checked = false;
+                showToast('Permissions denied', 'error');
+                return;
+            }
+
+            // Request host permissions
+            try {
+                await chrome.permissions.request({
+                    origins: ['<all_urls>']
+                });
+            } catch (err) {
+                console.log('Host permissions request failed or skipped:', err);
+            }
+
+            // Now notify background to enable the feature
             const result = await chrome.runtime.sendMessage({ type: 'ENABLE_AUTO_CAPTURE' });
             if (!result.success) {
                 e.target.checked = false;

@@ -130,7 +130,7 @@ if (window.cloudClipInjected) {
     }
 
     // Handle page unload
-    window.addEventListener('unload', cleanup);
+    window.addEventListener('pagehide', cleanup);
 
     // Initialize
     initialize();

@@ -153,56 +153,60 @@ async function getAutoCaptureSetting() {
 }
 
 /**
- * Inject content scripts into all tabs
- * Called when auto-capture is enabled
+ * Register dynamic content scripts
+ * This ensures Chrome injects them automatically into all matching pages
  */
 async function injectContentScripts() {
     try {
-        // Check if we have the required permissions
-        const hasPermission = await chrome.permissions.contains({
-            permissions: ['scripting'],
-            origins: ['<all_urls>']
-        });
+        const SCRIPT_ID = 'cloudclip-content-script';
 
-        if (!hasPermission) {
-            console.log('CloudClip: No permission to inject content scripts');
+        // Check if already registered
+        const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [SCRIPT_ID] });
+        if (existing.length > 0) {
+            console.log('CloudClip: Content scripts already registered');
             return;
         }
 
+        // Register the script
+        await chrome.scripting.registerContentScripts([{
+            id: SCRIPT_ID,
+            js: ['src/content/content.js'],
+            matches: ['<all_urls>'],
+            runAt: 'document_start',
+        }]);
+
+        console.log('CloudClip: Content scripts registered');
+
+        // Also inject into currently open tabs immediately (for instant enablement)
         const tabs = await chrome.tabs.query({});
-
         for (const tab of tabs) {
-            // Skip chrome:// and other restricted URLs
-            if (tab.url?.startsWith('chrome://') ||
-                tab.url?.startsWith('chrome-extension://') ||
-                tab.url?.startsWith('edge://') ||
-                tab.url?.startsWith('about:')) {
-                continue;
-            }
-
-            try {
-                await chrome.scripting.executeScript({
+            if (tab.url?.startsWith('http')) {
+                chrome.scripting.executeScript({
                     target: { tabId: tab.id },
                     files: ['src/content/content.js']
-                });
-            } catch (err) {
-                // Ignore errors for restricted pages
-                console.debug('CloudClip: Could not inject into tab:', tab.url);
+                }).catch(() => { }); // Ignore errors
             }
         }
+
     } catch (err) {
-        console.error('CloudClip: Error injecting content scripts:', err);
+        console.error('CloudClip: Error registering content scripts:', err);
     }
 }
 
 /**
- * Remove content scripts from all tabs
- * Called when auto-capture is disabled
+ * Unregister content scripts
  */
 async function removeContentScripts() {
-    // Content scripts will be automatically removed on page refresh
-    // We just need to notify them to stop listening
-    broadcastToAllTabs({ type: 'DISABLE_CAPTURE' });
+    try {
+        const SCRIPT_ID = 'cloudclip-content-script';
+        await chrome.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] });
+        console.log('CloudClip: Content scripts unregistered');
+
+        // Notify existing instances to stop
+        broadcastToAllTabs({ type: 'DISABLE_CAPTURE' });
+    } catch (err) {
+        // Ignore error if not registered
+    }
 }
 
 /**
@@ -290,22 +294,32 @@ async function handleMessage(message, sender) {
  * @param {Object} payload - Copy event payload
  */
 async function handleClipboardCopied(payload) {
+    console.log('CloudClip: Received clipboard copy event:', payload);
+
     const { content, url, timestamp } = payload;
 
     // Check if auto-capture is enabled
     const autoCapture = await getAutoCaptureSetting();
+    console.log('CloudClip: Auto-capture enabled:', autoCapture);
+
     if (!autoCapture) {
+        console.log('CloudClip: Skipping - auto-capture disabled');
         return { success: false, error: 'Auto-capture disabled' };
     }
 
     // Check if authenticated
     const authenticated = await isAuthenticated();
+    console.log('CloudClip: Authenticated:', authenticated);
+
     if (!authenticated) {
+        console.log('CloudClip: Skipping - not authenticated');
         return { success: false, error: 'Not authenticated' };
     }
 
     // Upload to Supabase
+    console.log('CloudClip: Uploading content to Supabase...');
     const result = await uploadClipboardItem(content, { origin: url });
+    console.log('CloudClip: Upload result:', result);
 
     if (result.success) {
         broadcastMessage({ type: 'NEW_CLIPBOARD_ITEM', item: result.item });
@@ -319,22 +333,13 @@ async function handleClipboardCopied(payload) {
  */
 async function handleEnableAutoCapture() {
     try {
-        // Request permissions first (without origins)
-        const permissionsGranted = await chrome.permissions.request({
+        // Verify we have permissions (requested by popup)
+        const hasPermissions = await chrome.permissions.contains({
             permissions: ['clipboardRead', 'scripting']
         });
 
-        if (!permissionsGranted) {
+        if (!hasPermissions) {
             return { success: false, error: 'Permissions not granted' };
-        }
-
-        // Request host permissions separately
-        try {
-            await chrome.permissions.request({
-                origins: ['<all_urls>']
-            });
-        } catch (err) {
-            console.log('CloudClip: Host permissions not granted, will work on limited sites');
         }
 
         // Save setting
@@ -472,35 +477,7 @@ chrome.runtime.setUninstallURL('', async () => {
     }
 });
 
-/**
- * Handle tab updates - inject content script if auto-capture enabled
- */
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status !== 'complete') return;
 
-    const autoCapture = await getAutoCaptureSetting();
-    if (!autoCapture) return;
-
-    const authenticated = await isAuthenticated();
-    if (!authenticated) return;
-
-    // Skip restricted URLs
-    if (tab.url?.startsWith('chrome://') ||
-        tab.url?.startsWith('chrome-extension://') ||
-        tab.url?.startsWith('edge://') ||
-        tab.url?.startsWith('about:')) {
-        return;
-    }
-
-    try {
-        await chrome.scripting.executeScript({
-            target: { tabId },
-            files: ['src/content/content.js']
-        });
-    } catch (err) {
-        // Ignore errors for restricted pages
-    }
-});
 
 /**
  * Keep service worker alive
