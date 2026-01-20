@@ -35,8 +35,5 @@
   },
   "minimum_chrome_version": "109",
   "content_scripts": [],
-  "web_accessible_resources": [],
-  "externally_connectable": {
-    "matches": []
-  }
+  "web_accessible_resources": []
 }
