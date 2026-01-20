@@ -14,8 +14,8 @@
 export const CONFIG = {
   // Supabase Configuration
   // Replace these with your actual Supabase project credentials
-  SUPABASE_URL: 'https://your-project-id.supabase.co',
-  SUPABASE_ANON_KEY: 'your-anon-key-here',
+  SUPABASE_URL: 'https://ncislghaavunnaoogxak.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_anon_3QCf1QWAiY9kZT9oSU-ZMg_mCxpQwkV',
 
   // Sync Settings
   SYNC: {
@@ -68,15 +68,17 @@ export const CONFIG = {
 export function validateConfig() {
   const errors = [];
 
+  // Check if URL is missing or still a placeholder
   if (!CONFIG.SUPABASE_URL ||
-    CONFIG.SUPABASE_URL === 'https://ncislghaavunnaoogxak.supabase.co' ||
-    CONFIG.SUPABASE_URL.includes('your-project')) {
+    CONFIG.SUPABASE_URL === 'https://your-project-id.supabase.co' ||
+    CONFIG.SUPABASE_URL.includes('your-project-id')) {
     errors.push('SUPABASE_URL not configured - please update src/config.js');
   }
 
+  // Check if anon key is missing or still a placeholder
   if (!CONFIG.SUPABASE_ANON_KEY ||
-    CONFIG.SUPABASE_ANON_KEY === 'sb_publishable_3QCf1QWAiY9kZT9oSU-ZMg_mCxpQwkV' ||
-    CONFIG.SUPABASE_ANON_KEY.includes('your-')) {
+    CONFIG.SUPABASE_ANON_KEY === 'your-anon-key-here' ||
+    CONFIG.SUPABASE_ANON_KEY.includes('your-anon')) {
     errors.push('SUPABASE_ANON_KEY not configured - please update src/config.js');
   }
 

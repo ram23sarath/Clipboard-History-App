@@ -43,6 +43,9 @@ async function build() {
         // Copy files
         copyFiles();
 
+        // Bundle JavaScript with esbuild
+        await bundleScripts();
+
         // Generate icons if needed
         await generateIcons();
 
@@ -63,6 +66,40 @@ async function build() {
     } catch (error) {
         console.error('\n❌ Build failed:', error.message);
         process.exit(1);
+    }
+}
+
+/**
+ * Bundle JavaScript files with esbuild
+ */
+async function bundleScripts() {
+    console.log('📦 Bundling JavaScript...');
+
+    const esbuild = await import('esbuild');
+
+    const entryPoints = [
+        { in: path.join(DIST_DIR, 'src/popup/popup.js'), out: 'src/popup/popup' },
+        { in: path.join(DIST_DIR, 'src/background/background.js'), out: 'src/background/background' },
+    ];
+
+    for (const entry of entryPoints) {
+        try {
+            await esbuild.build({
+                entryPoints: [entry.in],
+                outfile: entry.in, // overwrite the original
+                bundle: true,
+                format: 'esm',
+                platform: 'browser',
+                target: ['chrome109'],
+                minify: isProduction,
+                sourcemap: !isProduction,
+                allowOverwrite: true,
+            });
+            console.log(`   ✓ ${path.basename(entry.in)}`);
+        } catch (err) {
+            console.error(`   ✗ Failed to bundle ${entry.in}:`, err.message);
+            throw err;
+        }
     }
 }
 

@@ -3,7 +3,7 @@
  * Initializes and exports the Supabase client with session handling
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from '@supabase/supabase-js';
 import { CONFIG, validateConfig } from '../config.js';
 
 let supabaseClient = null;
