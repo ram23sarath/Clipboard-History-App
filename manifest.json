@@ -8,7 +8,8 @@
   ],
   "optional_permissions": [
     "clipboardRead",
-    "clipboardWrite"
+    "clipboardWrite",
+    "scripting"
   ],
   "optional_host_permissions": [
     "<all_urls>"

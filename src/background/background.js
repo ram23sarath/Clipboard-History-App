@@ -319,14 +319,22 @@ async function handleClipboardCopied(payload) {
  */
 async function handleEnableAutoCapture() {
     try {
-        // Request permissions
-        const granted = await chrome.permissions.request({
-            permissions: ['clipboardRead', 'scripting'],
-            origins: ['<all_urls>']
+        // Request permissions first (without origins)
+        const permissionsGranted = await chrome.permissions.request({
+            permissions: ['clipboardRead', 'scripting']
         });
 
-        if (!granted) {
+        if (!permissionsGranted) {
             return { success: false, error: 'Permissions not granted' };
+        }
+
+        // Request host permissions separately
+        try {
+            await chrome.permissions.request({
+                origins: ['<all_urls>']
+            });
+        } catch (err) {
+            console.log('CloudClip: Host permissions not granted, will work on limited sites');
         }
 
         // Save setting

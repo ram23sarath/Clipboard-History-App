@@ -15,7 +15,7 @@ export const CONFIG = {
   // Supabase Configuration
   // Replace these with your actual Supabase project credentials
   SUPABASE_URL: 'https://ncislghaavunnaoogxak.supabase.co',
-  SUPABASE_ANON_KEY: 'sb_anon_3QCf1QWAiY9kZT9oSU-ZMg_mCxpQwkV',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jaXNsZ2hhYXZ1bm5hb29neGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MDI0MjcsImV4cCI6MjA4NDQ3ODQyN30.ZcL3iTwynD-vDlapwilDQHbKEbOk4huAHiuHwMSqFvM',
 
   // Sync Settings
   SYNC: {

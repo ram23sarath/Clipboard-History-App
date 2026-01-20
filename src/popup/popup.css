@@ -13,36 +13,36 @@
   --bg-tertiary: #24242e;
   --bg-hover: #2d2d3a;
   --bg-active: #3a3a4a;
-  
+
   --text-primary: #ffffff;
   --text-secondary: #a0a0b0;
   --text-tertiary: #6a6a7a;
   --text-muted: #4a4a5a;
-  
+
   --accent-primary: #6366f1;
   --accent-hover: #7c7ff5;
   --accent-glow: rgba(99, 102, 241, 0.3);
-  
+
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
   --danger-hover: #dc2626;
-  
+
   --border-color: #2a2a35;
   --border-active: #3a3a45;
-  
+
   /* Sizing */
   --popup-width: 380px;
   --popup-height: 560px;
   --border-radius: 12px;
   --border-radius-sm: 8px;
   --border-radius-xs: 6px;
-  
+
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 350ms ease;
-  
+
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -59,7 +59,8 @@
   padding: 0;
 }
 
-html, body {
+html,
+body {
   width: var(--popup-width);
   height: var(--popup-height);
   overflow: hidden;
@@ -133,12 +134,21 @@ body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
 }
 
 /* ============================================================================
@@ -190,6 +200,7 @@ body {
   opacity: 0;
   transform: translateX(20px);
   transition: all var(--transition-normal);
+  overflow-y: auto;
 }
 
 .slide.active {
@@ -289,12 +300,12 @@ body {
   flex-shrink: 0;
 }
 
-.consent-checkbox input:checked + .checkmark {
+.consent-checkbox input:checked+.checkmark {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
 }
 
-.consent-checkbox input:checked + .checkmark::after {
+.consent-checkbox input:checked+.checkmark::after {
   content: '';
   position: absolute;
   left: 6px;
@@ -927,12 +938,12 @@ body {
   transition: all var(--transition-fast);
 }
 
-.toggle input:checked + .toggle-slider {
+.toggle input:checked+.toggle-slider {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
 }
 
-.toggle input:checked + .toggle-slider::before {
+.toggle input:checked+.toggle-slider::before {
   transform: translateY(-50%) translateX(20px);
   background: white;
 }
@@ -1040,8 +1051,13 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
@@ -1049,6 +1065,7 @@ body {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
