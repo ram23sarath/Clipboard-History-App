@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#818cf8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6366f1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#grad)"/>
+  
+  <!-- Cloud shape -->
+  <g transform="translate(20, 32)" fill="white">
+    <path d="M72.6 37.5c.3-1.2.4-2.4.4-3.7 0-11-8.9-19.8-19.8-19.8-8.4 0-15.6 5.2-18.5 12.6C33 25.6 31.1 25 29 25c-6.6 0-12 5.4-12 12 0 .7.1 1.4.2 2.1C10.5 41.1 5 47.8 5 55.8 5 65.4 12.6 73 22.2 73h50.6C82.4 73 90 65.4 90 55.8c0-8.7-6.4-15.9-14.8-17.3z"/>
+  </g>
+  
+  <!-- Sync arrows -->
+  <g transform="translate(44, 58)" fill="#6366f1">
+    <path d="M8 8h12v3l5-5-5-5v3H6v8h2V8z"/>
+    <path d="M32 16H20v-3l-5 5 5 5v-3h14v-8h-2v4z"/>
+  </g>
+</svg>

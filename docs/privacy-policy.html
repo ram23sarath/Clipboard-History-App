@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - CloudClip</title>
+    <style>
+        :root {
+            --bg: #0f0f12;
+            --bg-secondary: #1a1a22;
+            --text: #ffffff;
+            --text-secondary: #a0a0b0;
+            --accent: #6366f1;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            padding: 40px 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .updated {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+
+        h2 {
+            font-size: 20px;
+            margin: 32px 0 16px;
+            border-bottom: 1px solid var(--bg-secondary);
+            padding-bottom: 8px;
+        }
+
+        p,
+        li {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        ul {
+            padding-left: 24px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        strong {
+            color: var(--text);
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .highlight {
+            background: var(--bg-secondary);
+            padding: 16px 20px;
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+            margin: 24px 0;
+        }
+
+        .highlight p {
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: January 20, 2026</p>
+
+    <p>CloudClip ("we", "our", or "the extension") is committed to protecting your privacy. This Privacy Policy explains
+        how we collect, use, and safeguard your information when you use our Chrome extension.</p>
+
+    <h2>Information We Collect</h2>
+
+    <p><strong>Clipboard Content:</strong> When you enable automatic clipboard sync, the extension captures text that
+        you copy. Before uploading, we automatically redact sensitive information including:</p>
+
+    <ul>
+        <li>Social Security Numbers (SSN)</li>
+        <li>Credit card numbers</li>
+        <li>Passwords and API keys</li>
+    </ul>
+
+    <p><strong>Account Information:</strong> When you create an account, we collect your email address and a securely
+        hashed password.</p>
+
+    <p><strong>Device Information:</strong> We collect a randomly generated device identifier and optional device name
+        to help you identify which device each clipboard item came from.</p>
+
+    <h2>How We Use Your Information</h2>
+
+    <ul>
+        <li>To synchronize your clipboard across your devices</li>
+        <li>To display your clipboard history in the extension popup</li>
+        <li>To identify which device captured each clipboard item</li>
+        <li>To provide customer support when requested</li>
+    </ul>
+
+    <h2>Data Storage & Security</h2>
+
+    <p>Your clipboard data is stored securely using <strong>Supabase</strong>, a trusted cloud platform. We implement
+        the following security measures:</p>
+
+    <ul>
+        <li><strong>Row-Level Security (RLS):</strong> You can only access your own data</li>
+        <li><strong>HTTPS Encryption:</strong> All data is transmitted over encrypted connections</li>
+        <li><strong>Client-Side Redaction:</strong> Sensitive data is removed before upload</li>
+        <li><strong>Secure Authentication:</strong> Short-lived session tokens, no embedded secrets</li>
+    </ul>
+
+    <div class="highlight">
+        <p><strong>Important:</strong> We never store your clipboard data in plain text if it contains detected
+            sensitive information. SSNs, credit cards, and passwords are automatically replaced with [REDACTED] before
+            upload.</p>
+    </div>
+
+    <h2>Your Rights & Controls</h2>
+
+    <p>You have full control over your data:</p>
+
+    <ul>
+        <li><strong>Disable Auto-Capture:</strong> Turn off automatic clipboard sync at any time in settings</li>
+        <li><strong>Delete Items:</strong> Remove individual clipboard items with a long-press</li>
+        <li><strong>Delete All Data:</strong> Permanently erase all your clipboard history from our servers</li>
+        <li><strong>Account Deletion:</strong> Contact us to completely remove your account</li>
+    </ul>
+
+    <h2>Data Retention</h2>
+
+    <p>We retain your clipboard data until you choose to delete it. When you delete items, they are:
+    </p>
+
+    <ul>
+        <li>Immediately removed from the visible interface</li>
+        <li>Soft-deleted from the database (hidden but recoverable for 30 days)</li>
+        <li>Permanently deleted after 30 days</li>
+    </ul>
+
+    <p>If you uninstall the extension, your device record is automatically removed, but your clipboard history remains
+        accessible from other devices until manually deleted.</p>
+
+    <h2>Third-Party Services</h2>
+
+    <p>We use the following third-party services:</p>
+
+    <ul>
+        <li><strong>Supabase:</strong> Database and authentication (<a href="https://supabase.com/privacy"
+                target="_blank">Privacy Policy</a>)</li>
+    </ul>
+
+    <h2>Permissions Explained</h2>
+
+    <ul>
+        <li><strong>clipboardRead:</strong> Required to capture copied text for syncing</li>
+        <li><strong>clipboardWrite:</strong> Enables one-click re-copy from history</li>
+        <li><strong>storage:</strong> Stores preferences and cached data locally</li>
+        <li><strong>Host access:</strong> Required to detect copy events on web pages</li>
+    </ul>
+
+    <h2>Children's Privacy</h2>
+
+    <p>CloudClip is not intended for children under 13 years of age. We do not knowingly collect personal information
+        from children.</p>
+
+    <h2>Changes to This Policy</h2>
+
+    <p>We may update this Privacy Policy from time to time. We will notify you of any changes by updating the "Last
+        updated" date at the top of this policy.</p>
+
+    <h2>Contact Us</h2>
+
+    <p>If you have any questions about this Privacy Policy or our data practices, please contact us at:</p>
+
+    <p><a href="mailto:privacy@cloudclip.example.com">privacy@cloudclip.example.com</a></p>
+</body>
+
+</html>

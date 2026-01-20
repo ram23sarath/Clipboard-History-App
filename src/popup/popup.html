@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=400, height=600">
+    <title>CloudClip</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="screen active">
+            <div class="loading-container">
+                <div class="logo">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                            d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4s1.79-4 4-4h.71A5.5 5.5 0 0112 6c2.62 0 4.88 1.86 5.39 4.43l.3 1.5 1.53.11A2.98 2.98 0 0122 15c0 1.65-1.35 3-3 3z" />
+                        <path d="M8 13h2v4H8zm3-2h2v6h-2zm3-1h2v7h-2z" />
+                    </svg>
+                </div>
+                <div class="spinner"></div>
+                <p>Loading CloudClip...</p>
+            </div>
+        </div>
+
+        <!-- Onboarding Screen -->
+        <div id="onboarding-screen" class="screen">
+            <div class="onboarding-container">
+                <div class="onboarding-header">
+                    <div class="logo-small">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+                        </svg>
+                    </div>
+                    <h1>Welcome to CloudClip</h1>
+                </div>
+
+                <div class="onboarding-slides">
+                    <!-- Slide 1: Introduction -->
+                    <div class="slide active" data-slide="0">
+                        <div class="slide-image">
+                            <svg viewBox="0 0 100 100" fill="currentColor" opacity="0.3">
+                                <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="2" fill="none" />
+                                <path d="M50 30v20m0 0v20m0-20h20m-20 0H30" stroke="currentColor" stroke-width="3"
+                                    fill="none" />
+                            </svg>
+                        </div>
+                        <h2>Sync Your Clipboard Everywhere</h2>
+                        <p>Copy text on one device and access it on all your other devices instantly. Your clipboard,
+                            everywhere you need it.</p>
+                    </div>
+
+                    <!-- Slide 2: Privacy -->
+                    <div class="slide" data-slide="1">
+                        <div class="slide-image">
+                            <svg viewBox="0 0 100 100" fill="currentColor" opacity="0.3">
+                                <path d="M50 10L15 25v25c0 22 15 35 35 40 20-5 35-18 35-40V25L50 10z"
+                                    stroke="currentColor" stroke-width="2" fill="none" />
+                                <path d="M45 50l-8 8 3 3 5-5 15-15-3-3-12 12z" fill="currentColor" />
+                            </svg>
+                        </div>
+                        <h2>Your Privacy Matters</h2>
+                        <p>Sensitive data like credit cards, SSNs, and passwords are automatically redacted before
+                            upload. You're always in control.</p>
+                    </div>
+
+                    <!-- Slide 3: Permissions -->
+                    <div class="slide" data-slide="2">
+                        <div class="slide-image">
+                            <svg viewBox="0 0 100 100" fill="currentColor" opacity="0.3">
+                                <rect x="25" y="20" width="50" height="60" rx="5" stroke="currentColor" stroke-width="2"
+                                    fill="none" />
+                                <circle cx="50" cy="45" r="10" stroke="currentColor" stroke-width="2" fill="none" />
+                                <path d="M50 55v15" stroke="currentColor" stroke-width="2" />
+                            </svg>
+                        </div>
+                        <h2>Permission Required</h2>
+                        <p>To capture clipboard content, we need your permission. You can enable or disable automatic
+                            capture at any time in settings.</p>
+                        <div class="permissions-list">
+                            <div class="permission-item">
+                                <span class="permission-icon">📋</span>
+                                <div class="permission-text">
+                                    <strong>Clipboard Access</strong>
+                                    <span>To read and write clipboard content</span>
+                                </div>
+                            </div>
+                            <div class="permission-item">
+                                <span class="permission-icon">🌐</span>
+                                <div class="permission-text">
+                                    <strong>Site Access</strong>
+                                    <span>To detect when you copy text on any page</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Slide 4: Consent -->
+                    <div class="slide" data-slide="3">
+                        <div class="slide-image">
+                            <svg viewBox="0 0 100 100" fill="currentColor" opacity="0.3">
+                                <circle cx="50" cy="50" r="35" stroke="currentColor" stroke-width="2" fill="none" />
+                                <path d="M40 50l8 8 15-20" stroke="currentColor" stroke-width="4" fill="none" />
+                            </svg>
+                        </div>
+                        <h2>Ready to Start?</h2>
+                        <p>By continuing, you agree to our <a href="#" id="privacy-policy-link">Privacy Policy</a>. Your
+                            data is encrypted and securely stored.</p>
+                        <label class="consent-checkbox">
+                            <input type="checkbox" id="consent-checkbox">
+                            <span class="checkmark"></span>
+                            <span>I understand and consent to clipboard data collection</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="onboarding-nav">
+                    <div class="dots">
+                        <span class="dot active" data-slide="0"></span>
+                        <span class="dot" data-slide="1"></span>
+                        <span class="dot" data-slide="2"></span>
+                        <span class="dot" data-slide="3"></span>
+                    </div>
+                    <div class="nav-buttons">
+                        <button id="onboarding-back" class="btn btn-secondary" disabled>Back</button>
+                        <button id="onboarding-next" class="btn btn-primary">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auth Screen -->
+        <div id="auth-screen" class="screen">
+            <div class="auth-container">
+                <div class="auth-header">
+                    <div class="logo-small">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+                        </svg>
+                    </div>
+                    <h1>CloudClip</h1>
+                    <p class="subtitle">Sign in to sync your clipboard</p>
+                </div>
+
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-tab="login">Sign In</button>
+                    <button class="auth-tab" data-tab="register">Sign Up</button>
+                </div>
+
+                <form id="auth-form">
+                    <div class="form-group">
+                        <label for="auth-email">Email</label>
+                        <input type="email" id="auth-email" placeholder="you@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="auth-password">Password</label>
+                        <input type="password" id="auth-password" placeholder="••••••••" required minlength="6">
+                    </div>
+                    <button type="submit" id="auth-submit" class="btn btn-primary btn-block">
+                        <span class="btn-text">Sign In</span>
+                        <span class="btn-loader"></span>
+                    </button>
+                    <p class="auth-error" id="auth-error"></p>
+                </form>
+
+                <a href="#" id="forgot-password" class="forgot-link">Forgot password?</a>
+            </div>
+        </div>
+
+        <!-- Main Screen -->
+        <div id="main-screen" class="screen">
+            <header class="main-header">
+                <div class="header-left">
+                    <div class="logo-tiny">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+                        </svg>
+                    </div>
+                    <span class="header-title">CloudClip</span>
+                </div>
+                <div class="header-right">
+                    <button id="refresh-btn" class="icon-btn" title="Refresh">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+                        </svg>
+                    </button>
+                    <button id="settings-btn" class="icon-btn" title="Settings">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <div class="search-container">
+                <input type="search" id="search-input" placeholder="Search clipboard...">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+                </svg>
+            </div>
+
+            <div id="clipboard-list" class="clipboard-list">
+                <!-- Items will be populated here -->
+            </div>
+
+            <div id="empty-state" class="empty-state hidden">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z" />
+                </svg>
+                <p>No clipboard items yet</p>
+                <span>Copy something to get started</span>
+            </div>
+
+            <div id="sync-status" class="sync-status">
+                <span class="status-dot"></span>
+                <span class="status-text">Synced</span>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settings-screen" class="screen">
+            <header class="settings-header">
+                <button id="settings-back" class="icon-btn">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                    </svg>
+                </button>
+                <h1>Settings</h1>
+            </header>
+
+            <div class="settings-content">
+                <section class="settings-section">
+                    <h2>Account</h2>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Email</span>
+                            <span class="setting-value" id="user-email">user@example.com</span>
+                        </div>
+                    </div>
+                    <button id="logout-btn" class="btn btn-secondary btn-block">Sign Out</button>
+                </section>
+
+                <section class="settings-section">
+                    <h2>Device</h2>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Device Name</span>
+                            <input type="text" id="device-name-input" class="setting-input" placeholder="My Device">
+                        </div>
+                        <button id="save-device-name" class="btn btn-small">Save</button>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2>Sync</h2>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Auto-capture clipboard</span>
+                            <span class="setting-description">Automatically sync when you copy text</span>
+                        </div>
+                        <label class="toggle">
+                            <input type="checkbox" id="auto-capture-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Connection Status</span>
+                            <span class="setting-value" id="connection-status">Connected</span>
+                        </div>
+                        <span class="status-indicator online" id="status-indicator"></span>
+                    </div>
+                </section>
+
+                <section class="settings-section danger">
+                    <h2>Danger Zone</h2>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Delete All Data</span>
+                            <span class="setting-description">Remove all clipboard history from cloud</span>
+                        </div>
+                        <button id="delete-data-btn" class="btn btn-danger btn-small">Delete</button>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2>About</h2>
+                    <div class="setting-item">
+                        <span class="setting-label">Version</span>
+                        <span class="setting-value">1.0.0</span>
+                    </div>
+                    <div class="setting-item">
+                        <a href="#" id="privacy-link" class="setting-link">Privacy Policy</a>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content">
+            <h2>Delete All Data?</h2>
+            <p>This will permanently delete all your clipboard history from the cloud. This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button id="delete-cancel" class="btn btn-secondary">Cancel</button>
+                <button id="delete-confirm" class="btn btn-danger">Delete Everything</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item Delete Confirmation -->
+    <div id="item-delete-modal" class="modal">
+        <div class="modal-content">
+            <h2>Delete Item?</h2>
+            <p>Remove this item from your clipboard history?</p>
+            <div class="modal-actions">
+                <button id="item-delete-cancel" class="btn btn-secondary">Cancel</button>
+                <button id="item-delete-confirm" class="btn btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+</body>
+
+</html>
