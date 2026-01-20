@@ -59,8 +59,18 @@ async function init() {
 
     } catch (err) {
         console.error('Popup init error:', err);
-        showToast('Failed to initialize. Please try again.', 'error');
-        showScreen('auth');
+
+        // Check if it's a configuration error
+        if (err.message?.includes('not configured')) {
+            showScreen('auth');
+            const errorEl = document.getElementById('auth-error');
+            if (errorEl) {
+                errorEl.textContent = 'Supabase not configured. Please update src/config.js with your credentials.';
+            }
+        } else {
+            showToast('Failed to initialize. Please try again.', 'error');
+            showScreen('auth');
+        }
     }
 }
 

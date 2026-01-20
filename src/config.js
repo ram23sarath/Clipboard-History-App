@@ -68,11 +68,15 @@ export const CONFIG = {
 export function validateConfig() {
   const errors = [];
 
-  if (CONFIG.SUPABASE_URL === 'https://ncislghaavunnaoogxak.supabase.co') {
+  if (!CONFIG.SUPABASE_URL ||
+    CONFIG.SUPABASE_URL === 'https://ncislghaavunnaoogxak.supabase.co' ||
+    CONFIG.SUPABASE_URL.includes('your-project')) {
     errors.push('SUPABASE_URL not configured - please update src/config.js');
   }
 
-  if (CONFIG.SUPABASE_ANON_KEY === 'sb_publishable_3QCf1QWAiY9kZT9oSU-ZMg_mCxpQwkV') {
+  if (!CONFIG.SUPABASE_ANON_KEY ||
+    CONFIG.SUPABASE_ANON_KEY === 'sb_publishable_3QCf1QWAiY9kZT9oSU-ZMg_mCxpQwkV' ||
+    CONFIG.SUPABASE_ANON_KEY.includes('your-')) {
     errors.push('SUPABASE_ANON_KEY not configured - please update src/config.js');
   }
 
