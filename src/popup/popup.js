@@ -6,7 +6,7 @@
 import { getSupabaseClient, getSession, isAuthenticated, onAuthStateChange } from '../lib/supabase-client.js';
 import { signIn, signUp, signOut, deleteAllUserData, getCurrentUser } from '../lib/auth.js';
 import { getDeviceId, getDeviceName, setDeviceName } from '../lib/device.js';
-import { fetchClipboardItems, deleteClipboardItem, getCachedItems } from '../lib/sync.js';
+import { fetchClipboardItems, deleteClipboardItem, getCachedItems, uploadClipboardItem } from '../lib/sync.js';
 import { CONFIG } from '../config.js';
 
 // =============================================================================
@@ -40,6 +40,7 @@ async function init() {
 
         // Check authentication state
         const authenticated = await isAuthenticated();
+        console.log('CloudClip:DEBUG popup init', { authenticated });
 
         if (!authenticated) {
             // Check if onboarding is complete
@@ -59,9 +60,11 @@ async function init() {
 
         // Listen for messages from background
         chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+        console.log('CloudClip:DEBUG popup listeners registered');
 
     } catch (err) {
         console.error('Popup init error:', err);
+        console.error('CloudClip:DEBUG popup init error', err);
 
         // Check if it's a configuration error
         if (err.message?.includes('not configured')) {
@@ -150,6 +153,7 @@ function showScreen(screenName) {
  */
 async function loadMainScreen() {
     showScreen('main');
+    console.log('CloudClip:DEBUG loadMainScreen');
 
     // Load user info for settings
     await loadUserInfo();
@@ -232,6 +236,8 @@ function setupEventListeners() {
     document.getElementById('privacy-policy-link')?.addEventListener('click', openPrivacyPolicy);
 
     document.getElementById('debug-refresh')?.addEventListener('click', updateDebugPanel);
+    document.getElementById('debug-ping')?.addEventListener('click', pingBackground);
+    document.getElementById('debug-upload')?.addEventListener('click', debugUploadClipboard);
 }
 
 // =============================================================================
@@ -803,6 +809,81 @@ function formatExpiry(expiresAtSeconds) {
     return date.toLocaleString();
 }
 
+function setDebugPingResult(value) {
+    const pingEl = document.getElementById('debug-ping-result');
+    if (pingEl) {
+        pingEl.textContent = value;
+    }
+}
+
+function setDebugUploadResult(value) {
+    const uploadEl = document.getElementById('debug-upload-result');
+    if (uploadEl) {
+        uploadEl.textContent = value;
+    }
+}
+
+function promiseWithTimeout(promise, timeoutMs) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs)),
+    ]);
+}
+
+async function pingBackground() {
+    setDebugPingResult('Pinging...');
+    console.log('CloudClip:DEBUG ping start');
+
+    try {
+        const response = await promiseWithTimeout(
+            chrome.runtime.sendMessage({ type: 'PING' }),
+            1500
+        );
+        if (response?.pong) {
+            setDebugPingResult('Pong');
+        } else {
+            setDebugPingResult('No response');
+        }
+        console.log('CloudClip:DEBUG ping response', response);
+    } catch (err) {
+        setDebugPingResult(`Error (${err?.message || String(err)})`);
+        console.error('CloudClip:DEBUG ping error', err);
+    }
+}
+
+async function debugUploadClipboard() {
+    setDebugUploadResult('Reading...');
+    console.log('CloudClip:DEBUG upload start');
+
+    try {
+        const text = await navigator.clipboard.readText();
+        if (!text || !text.trim()) {
+            setDebugUploadResult('Empty clipboard');
+            console.warn('CloudClip:DEBUG upload empty clipboard');
+            return;
+        }
+
+        setDebugUploadResult('Uploading...');
+        const result = await uploadClipboardItem(text, {
+            skipDebounce: true,
+            origin: 'debug-popup',
+        });
+
+        if (result?.success) {
+            setDebugUploadResult('Uploaded');
+            console.log('CloudClip:DEBUG upload success', { id: result?.item?.id || null });
+            await refreshClipboardItems();
+            await updateDebugPanel();
+        } else {
+            setDebugUploadResult(`Error (${result?.error || 'Unknown'})`);
+            console.error('CloudClip:DEBUG upload failed', result);
+        }
+    } catch (err) {
+        setDebugUploadResult(`Error (${err?.message || String(err)})`);
+        console.error('CloudClip:DEBUG upload error', err);
+    }
+}
+
 async function updateDebugPanel() {
     const storageKeyEl = document.getElementById('debug-storage-key');
     const storageSessionEl = document.getElementById('debug-storage-session');
@@ -815,6 +896,7 @@ async function updateDebugPanel() {
 
     const storageKey = getSupabaseStorageKey();
     storageKeyEl.textContent = storageKey || 'Invalid SUPABASE_URL';
+    console.log('CloudClip:DEBUG storageKey', storageKey);
 
     let storageResult = {
         present: false,
@@ -839,6 +921,7 @@ async function updateDebugPanel() {
             }
         }
     }
+    console.log('CloudClip:DEBUG storageResult', storageResult);
 
     if (!storageKey) {
         storageSessionEl.textContent = 'n/a';
@@ -869,6 +952,7 @@ async function updateDebugPanel() {
     } catch (err) {
         clientResult.error = err?.message || String(err);
     }
+    console.log('CloudClip:DEBUG clientResult', clientResult);
 
     if (clientResult.authenticated) {
         const userLabel = formatUserLabel(clientResult.summary?.user);
@@ -879,6 +963,8 @@ async function updateDebugPanel() {
     } else {
         clientSessionEl.textContent = 'Not authenticated';
     }
+
+    setDebugPingResult('Ready');
 
     rawEl.textContent = JSON.stringify(
         {

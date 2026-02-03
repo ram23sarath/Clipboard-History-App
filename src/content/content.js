@@ -5,6 +5,10 @@
 
 // IMMEDIATE LOG - This should appear if the file loads at all
 console.log('🔵 CloudClip: Content script FILE LOADED');
+console.log('CloudClip:DEBUG content boot', {
+    href: window.location.href,
+    top: window === window.top
+});
 
 // Prevent multiple injections
 if (window.cloudClipInjected) {
@@ -34,6 +38,7 @@ if (window.cloudClipInjected) {
             // If storage access fails, default to enabled
             captureEnabled = true;
         }
+        console.log('CloudClip:DEBUG captureEnabled', { enabled: captureEnabled });
 
         // Add copy event listener
         document.addEventListener('copy', handleCopy, true);
@@ -156,6 +161,10 @@ if (window.cloudClipInjected) {
         }
 
         console.log('CloudClip: Sending to background:', message.type, message.payload?.content?.substring(0, 50));
+        console.log('CloudClip:DEBUG sendToBackground', {
+            type: message.type,
+            hasRuntime: !!chrome.runtime?.id
+        });
         sendWithRetry(message, 3);
     }
 
@@ -169,6 +178,7 @@ if (window.cloudClipInjected) {
             chrome.runtime.sendMessage(message)
                 .then(response => {
                     console.log('CloudClip: Background response:', response);
+                    console.log('CloudClip:DEBUG send response', response);
                 })
                 .catch(err => {
                     const msg = err?.message || '';
@@ -201,10 +211,12 @@ if (window.cloudClipInjected) {
 
                     // Otherwise log as error
                     console.error('CloudClip: Could not send message:', err);
+                    console.error('CloudClip:DEBUG send error', err);
                 });
         } catch (err) {
             console.error('CloudClip: Sync error in sendToBackground:', err);
             captureEnabled = false;
+            console.error('CloudClip:DEBUG sendToBackground exception', err);
         }
     }
 

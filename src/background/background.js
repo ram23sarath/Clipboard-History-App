@@ -19,6 +19,7 @@ import { CONFIG } from '../config.js';
 let isInitialized = false;
 let realtimeSubscription = null;
 let reinjectTimeouts = [];
+const DEBUG_PREFIX = 'CloudClip:DEBUG';
 
 /**
  * Initialize the service worker
@@ -27,6 +28,10 @@ async function initialize() {
     if (isInitialized) return;
 
     console.log('CloudClip: Initializing service worker...');
+    console.log(`${DEBUG_PREFIX} init start`, {
+        time: new Date().toISOString(),
+        runtimeId: chrome.runtime?.id || null
+    });
 
     try {
         // Ensure defaults exist even if onInstalled didn't run (e.g., restart)
@@ -38,20 +43,31 @@ async function initialize() {
 
         // Listen for auth state changes
         onAuthStateChange(handleAuthStateChange);
+        console.log(`${DEBUG_PREFIX} auth listener registered`);
 
         // Ensure content scripts are injected into restored tabs on startup
         await injectIntoOpenTabs();
+        console.log(`${DEBUG_PREFIX} injectIntoOpenTabs complete (init)`);
 
         // Check if user is already authenticated
         const session = await getSession();
+        console.log(`${DEBUG_PREFIX} getSession (init)`, {
+            hasSession: !!session,
+            userId: session?.user?.id || null,
+            expiresAt: session?.expires_at || null
+        });
         if (session?.user) {
             await handleUserLogin(session.user);
         }
 
         isInitialized = true;
         console.log('CloudClip: Service worker initialized');
+        console.log(`${DEBUG_PREFIX} init complete`, {
+            time: new Date().toISOString()
+        });
     } catch (err) {
         console.error('CloudClip: Initialization error:', err);
+        console.error(`${DEBUG_PREFIX} init error`, err);
     }
 }
 
@@ -98,6 +114,10 @@ async function handleAuthStateChange(event, session) {
  */
 async function handleUserLogin(user) {
     console.log('CloudClip: User logged in:', user.email);
+    console.log(`${DEBUG_PREFIX} handleUserLogin`, {
+        userId: user?.id || null,
+        email: user?.email || null
+    });
 
     try {
         // Register/update device
@@ -111,20 +131,26 @@ async function handleUserLogin(user) {
             clearReinjectSchedules();
             scheduleReinject(1500, 'post-login');
         }
+        console.log(`${DEBUG_PREFIX} autoCapture`, { enabled: autoCapture });
 
         // Set up Realtime subscription
         await setupRealtimeSubscription();
+        console.log(`${DEBUG_PREFIX} realtime subscription set`);
 
         // Initial sync
         await syncClipboardItems();
+        console.log(`${DEBUG_PREFIX} initial sync complete`);
 
         // Process any locally cached pending uploads (from when SW was offline/not-authenticated)
         await processPendingUploads();
+        console.log(`${DEBUG_PREFIX} pending uploads processed`);
 
         // Notify popup if open
         broadcastMessage({ type: 'AUTH_STATE_CHANGED', loggedIn: true, user });
+        console.log(`${DEBUG_PREFIX} broadcast AUTH_STATE_CHANGED loggedIn`);
     } catch (err) {
         console.error('CloudClip: Login handler error:', err);
+        console.error(`${DEBUG_PREFIX} handleUserLogin error`, err);
     }
 }
 
@@ -193,6 +219,7 @@ async function processPendingUploads() {
  */
 function handleUserLogout() {
     console.log('CloudClip: User logged out');
+    console.log(`${DEBUG_PREFIX} handleUserLogout`);
 
     // Clean up
     unsubscribeFromClipboardChanges();
@@ -280,11 +307,13 @@ async function injectIntoOpenTabs() {
         if (!autoCapture) return;
 
         const tabs = await chrome.tabs.query({});
+        console.log(`${DEBUG_PREFIX} injectIntoOpenTabs`, { count: tabs.length });
         for (const tab of tabs) {
             await injectIntoTab(tab);
         }
     } catch (err) {
         console.error('CloudClip: Error injecting into open tabs:', err);
+        console.error(`${DEBUG_PREFIX} injectIntoOpenTabs error`, err);
     }
 }
 
@@ -323,8 +352,14 @@ async function injectIntoTab(tab) {
             target: { tabId: tab.id, allFrames: true },
             files: ['src/content/content.js']
         });
+        console.log(`${DEBUG_PREFIX} injected`, { tabId: tab.id, url: tab.url });
     } catch (err) {
         // Ignore injection errors (e.g., restricted pages)
+        console.warn(`${DEBUG_PREFIX} injectIntoTab failed`, {
+            tabId: tab?.id || null,
+            url: tab?.url || null,
+            error: err?.message || String(err)
+        });
     }
 }
 
@@ -343,7 +378,7 @@ async function removeContentScripts() {
  * @param {Object} message - Message to send
  */
 function broadcastMessage(message) {
-    chrome.runtime.sendMessage(message).catch(() => {
+    globalThis.chrome?.runtime?.sendMessage(message).catch(() => {
         // Popup might not be open, ignore errors
     });
 }
@@ -370,29 +405,50 @@ async function broadcastToAllTabs(message) {
 /**
  * Handle messages from popup and content scripts
  */
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // Handle async responses. Ensure we always call sendResponse (including on error)
-    initialize()
-        .then(() => handleMessage(message, sender))
-        .then((result) => {
-            try {
-                sendResponse(result);
-            } catch (err) {
-                console.error('CloudClip: Error sending response:', err);
+const runtimeApi = globalThis.chrome?.runtime;
+if (!runtimeApi?.onMessage) {
+    console.error('CloudClip: runtime.onMessage is unavailable', {
+        hasChrome: !!globalThis.chrome,
+        hasRuntime: !!globalThis.chrome?.runtime,
+    });
+} else {
+    try {
+        runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
+            console.log(`${DEBUG_PREFIX} onMessage`, {
+                type: message?.type || null,
+                from: sender?.tab?.id || 'extension',
+                url: sender?.tab?.url || null
+            });
+            if (message?.type === 'PING') {
+                sendResponse({ pong: true });
+                return;
             }
-        })
-        .catch((err) => {
-            console.error('CloudClip: Message handler error:', err);
-            try {
-                sendResponse({ success: false, error: err?.message || String(err) });
-            } catch (e) {
-                console.error('CloudClip: Failed to send error response:', e);
-            }
-        });
+            // Handle async responses. Ensure we always call sendResponse (including on error)
+            initialize()
+                .then(() => handleMessage(message, sender))
+                .then((result) => {
+                    try {
+                        sendResponse(result);
+                    } catch (err) {
+                        console.error('CloudClip: Error sending response:', err);
+                    }
+                })
+                .catch((err) => {
+                    console.error('CloudClip: Message handler error:', err);
+                    try {
+                        sendResponse({ success: false, error: err?.message || String(err) });
+                    } catch (e) {
+                        console.error('CloudClip: Failed to send error response:', e);
+                    }
+                });
 
-    // Return true to indicate we'll call sendResponse asynchronously.
-    return true;
-});
+            // Return true to indicate we'll call sendResponse asynchronously.
+            return true;
+        });
+    } catch (err) {
+        console.error('CloudClip: Failed to register runtime.onMessage listener', err);
+    }
+}
 
 /**
  * Process incoming messages
@@ -435,12 +491,16 @@ async function handleMessage(message, sender) {
         case 'COPY_TO_CLIPBOARD':
             return handleCopyToClipboard(payload.text);
 
+        case 'PING':
+            return { pong: true };
+
         default:
             console.warn('CloudClip: Unknown message type:', type);
             return { error: 'Unknown message type' };
     }
     } catch (err) {
         console.error('CloudClip: Unhandled message error:', err);
+        console.error(`${DEBUG_PREFIX} handleMessage error`, err);
         return { success: false, error: err?.message || String(err) };
     }
 }
@@ -451,6 +511,11 @@ async function handleMessage(message, sender) {
  */
 async function handleClipboardCopied(payload) {
     console.log('CloudClip: Received clipboard copy event:', payload);
+    console.log(`${DEBUG_PREFIX} clipboard payload`, {
+        hasContent: !!payload?.content,
+        url: payload?.url || null,
+        ts: payload?.timestamp || null
+    });
 
     const { content, url, timestamp } = payload;
 
@@ -466,6 +531,7 @@ async function handleClipboardCopied(payload) {
     // Check if authenticated
     const authenticated = await isAuthenticated();
     console.log('CloudClip: Authenticated:', authenticated);
+    console.log(`${DEBUG_PREFIX} authenticated`, { authenticated });
 
     if (!authenticated) {
         console.log('CloudClip: Not authenticated - caching pending item for later upload');
@@ -608,7 +674,7 @@ async function copyToClipboardViaOffscreen(text) {
 /**
  * Handle extension install/update
  */
-chrome.runtime.onInstalled.addListener(async (details) => {
+globalThis.chrome?.runtime?.onInstalled?.addListener(async (details) => {
     console.log('CloudClip: Extension installed/updated:', details.reason);
 
     if (details.reason === 'install') {
@@ -625,8 +691,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 /**
  * Handle extension startup
  */
-chrome.runtime.onStartup.addListener(async () => {
+globalThis.chrome?.runtime?.onStartup?.addListener(async () => {
     console.log('CloudClip: Extension started');
+    console.log(`${DEBUG_PREFIX} onStartup`);
     await initialize();
     await injectIntoOpenTabs();
     clearReinjectSchedules();
@@ -635,18 +702,21 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // Inject on tab activation/update to handle restored tabs after Chrome restart
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+globalThis.chrome?.tabs?.onActivated?.addListener(async ({ tabId }) => {
     try {
         const tab = await chrome.tabs.get(tabId);
         await injectIntoTab(tab);
+        console.log(`${DEBUG_PREFIX} onActivated`, { tabId });
     } catch (err) {
         // Ignore
+        console.warn(`${DEBUG_PREFIX} onActivated error`, err);
     }
 });
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+globalThis.chrome?.tabs?.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete') {
         await injectIntoTab(tab);
+        console.log(`${DEBUG_PREFIX} onUpdated complete`, { tabId, url: tab?.url || null });
     }
 });
 
@@ -654,7 +724,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
  * Handle extension uninstall
  * Note: This runs in a very limited context
  */
-chrome.runtime.setUninstallURL('').catch(() => { });
+try {
+    chrome.runtime.setUninstallURL('');
+} catch (err) {
+    console.error('CloudClip: Failed to set uninstall URL:', err);
+}
 
 
 
