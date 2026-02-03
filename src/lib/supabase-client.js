@@ -8,6 +8,16 @@ import { createClient } from '@supabase/supabase-js';
 import { CONFIG, validateConfig } from '../config.js';
 
 let supabaseClient = null;
+const SUPABASE_STORAGE_KEY = (() => {
+    try {
+        const hostname = new URL(CONFIG.SUPABASE_URL).hostname;
+        const projectRef = hostname.split('.')[0];
+        return `sb-${projectRef}-auth-token`;
+    } catch (err) {
+        console.warn('CloudClip: Failed to compute Supabase storage key:', err);
+        return null;
+    }
+})();
 
 /**
  * Initialize the Supabase client
@@ -33,6 +43,7 @@ export function getSupabaseClient() {
                 autoRefreshToken: true,
                 persistSession: true,
                 detectSessionInUrl: false,
+                storageKey: SUPABASE_STORAGE_KEY || undefined,
                 storage: {
                     // Custom storage adapter for Chrome extension
                     getItem: async (key) => {

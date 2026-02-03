@@ -293,6 +293,28 @@
                 </section>
 
                 <section class="settings-section">
+                    <div class="settings-section-header">
+                        <h2>Debug</h2>
+                        <button id="debug-refresh" class="btn btn-secondary btn-small">Refresh</button>
+                    </div>
+                    <div class="debug-panel">
+                        <div class="debug-row">
+                            <span class="debug-label">Storage key</span>
+                            <span class="debug-value" id="debug-storage-key">-</span>
+                        </div>
+                        <div class="debug-row">
+                            <span class="debug-label">Storage session</span>
+                            <span class="debug-value" id="debug-storage-session">-</span>
+                        </div>
+                        <div class="debug-row">
+                            <span class="debug-label">Client session</span>
+                            <span class="debug-value" id="debug-client-session">-</span>
+                        </div>
+                        <pre id="debug-session-raw" class="debug-raw">-</pre>
+                    </div>
+                </section>
+
+                <section class="settings-section">
                     <h2>About</h2>
                     <div class="setting-item">
                         <span class="setting-label">Version</span>

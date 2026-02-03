@@ -4,7 +4,7 @@
  */
 
 import { getSupabaseClient, getSession, onAuthStateChange, isAuthenticated } from '../lib/supabase-client.js';
-import { updateDeviceRecord, removeDeviceRecord, getDeviceId } from '../lib/device.js';
+import { updateDeviceRecord, getDeviceId } from '../lib/device.js';
 import {
     uploadClipboardItem,
     fetchClipboardItems,
@@ -18,6 +18,7 @@ import { CONFIG } from '../config.js';
 // State tracking
 let isInitialized = false;
 let realtimeSubscription = null;
+let reinjectTimeouts = [];
 
 /**
  * Initialize the service worker
@@ -106,6 +107,9 @@ async function handleUserLogin(user) {
         const autoCapture = await getAutoCaptureSetting();
         if (autoCapture) {
             await injectContentScripts();
+            await injectIntoOpenTabs();
+            clearReinjectSchedules();
+            scheduleReinject(1500, 'post-login');
         }
 
         // Set up Realtime subscription
@@ -193,6 +197,7 @@ function handleUserLogout() {
     // Clean up
     unsubscribeFromClipboardChanges();
     clearPendingUploads();
+    clearReinjectSchedules();
 
     // Notify popup
     broadcastMessage({ type: 'AUTH_STATE_CHANGED', loggedIn: false });
@@ -281,6 +286,28 @@ async function injectIntoOpenTabs() {
     } catch (err) {
         console.error('CloudClip: Error injecting into open tabs:', err);
     }
+}
+
+/**
+ * Schedule a re-injection pass to catch restored tabs
+ * @param {number} delayMs
+ * @param {string} reason
+ */
+function scheduleReinject(delayMs, reason = 'startup') {
+    const timeoutId = setTimeout(async () => {
+        console.log(`CloudClip: Re-injecting content scripts (${reason})`);
+        await injectIntoOpenTabs();
+    }, delayMs);
+
+    reinjectTimeouts.push(timeoutId);
+}
+
+/**
+ * Clear scheduled reinjection timers
+ */
+function clearReinjectSchedules() {
+    reinjectTimeouts.forEach((id) => clearTimeout(id));
+    reinjectTimeouts = [];
 }
 
 /**
@@ -395,6 +422,10 @@ async function handleMessage(message, sender) {
 
         case 'DISABLE_AUTO_CAPTURE':
             return handleDisableAutoCapture();
+
+        case 'ENSURE_CONTENT_SCRIPTS':
+            await injectIntoOpenTabs();
+            return { success: true };
 
         case 'GET_AUTH_STATE':
             const authenticated = await isAuthenticated();
@@ -598,6 +629,9 @@ chrome.runtime.onStartup.addListener(async () => {
     console.log('CloudClip: Extension started');
     await initialize();
     await injectIntoOpenTabs();
+    clearReinjectSchedules();
+    scheduleReinject(1500, 'startup');
+    scheduleReinject(5000, 'startup');
 });
 
 // Inject on tab activation/update to handle restored tabs after Chrome restart
@@ -620,14 +654,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
  * Handle extension uninstall
  * Note: This runs in a very limited context
  */
-chrome.runtime.setUninstallURL('', async () => {
-    // Try to clean up device record
-    try {
-        await removeDeviceRecord();
-    } catch (err) {
-        console.error('CloudClip: Cleanup error:', err);
-    }
-});
+chrome.runtime.setUninstallURL('').catch(() => { });
 
 
 

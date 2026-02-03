@@ -139,6 +139,9 @@ function showScreen(screenName) {
     if (screen) {
         screen.classList.add('active');
         state.currentScreen = screenName;
+        if (screenName === 'settings') {
+            updateDebugPanel();
+        }
     }
 }
 
@@ -162,6 +165,15 @@ async function loadMainScreen() {
 
     // Load auto-capture setting
     await loadAutoCaptureStatus();
+
+    // Ensure content scripts are injected after restart
+    try {
+        await chrome.runtime.sendMessage({ type: 'ENSURE_CONTENT_SCRIPTS' });
+    } catch (err) {
+        // Ignore if background is unavailable briefly
+    }
+
+    await updateDebugPanel();
 }
 
 // =============================================================================
@@ -218,6 +230,8 @@ function setupEventListeners() {
 
     // Privacy policy link in onboarding
     document.getElementById('privacy-policy-link')?.addEventListener('click', openPrivacyPolicy);
+
+    document.getElementById('debug-refresh')?.addEventListener('click', updateDebugPanel);
 }
 
 // =============================================================================
@@ -355,6 +369,7 @@ function handleAuthChange(event, session) {
     if (event === 'SIGNED_OUT') {
         showScreen('auth');
     }
+    updateDebugPanel();
 }
 
 async function handleForgotPassword(e) {
@@ -749,6 +764,131 @@ function formatTime(timestamp) {
 
     // Format as date
     return date.toLocaleDateString();
+}
+
+function getSupabaseStorageKey() {
+    try {
+        const hostname = new URL(CONFIG.SUPABASE_URL).hostname;
+        const projectRef = hostname.split('.')[0];
+        return `sb-${projectRef}-auth-token`;
+    } catch (err) {
+        return null;
+    }
+}
+
+function summarizeSession(session) {
+    if (!session || typeof session !== 'object') {
+        return null;
+    }
+
+    return {
+        user: session.user ? {
+            id: session.user.id || null,
+            email: session.user.email || null,
+        } : null,
+        expires_at: session.expires_at ?? null,
+        has_access_token: !!session.access_token,
+        has_refresh_token: !!session.refresh_token,
+    };
+}
+
+function formatUserLabel(user) {
+    if (!user) return 'none';
+    return user.email || user.id || 'unknown';
+}
+
+function formatExpiry(expiresAtSeconds) {
+    if (!expiresAtSeconds) return 'n/a';
+    const date = new Date(expiresAtSeconds * 1000);
+    return date.toLocaleString();
+}
+
+async function updateDebugPanel() {
+    const storageKeyEl = document.getElementById('debug-storage-key');
+    const storageSessionEl = document.getElementById('debug-storage-session');
+    const clientSessionEl = document.getElementById('debug-client-session');
+    const rawEl = document.getElementById('debug-session-raw');
+
+    if (!storageKeyEl || !storageSessionEl || !clientSessionEl || !rawEl) {
+        return;
+    }
+
+    const storageKey = getSupabaseStorageKey();
+    storageKeyEl.textContent = storageKey || 'Invalid SUPABASE_URL';
+
+    let storageResult = {
+        present: false,
+        summary: null,
+        expires_at_local: null,
+        parse_error: null,
+    };
+
+    if (storageKey) {
+        const result = await chrome.storage.local.get(storageKey);
+        const raw = result[storageKey];
+        if (raw) {
+            storageResult.present = true;
+            try {
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                storageResult.summary = summarizeSession(parsed);
+                if (storageResult.summary?.expires_at) {
+                    storageResult.expires_at_local = formatExpiry(storageResult.summary.expires_at);
+                }
+            } catch (err) {
+                storageResult.parse_error = err?.message || String(err);
+            }
+        }
+    }
+
+    if (!storageKey) {
+        storageSessionEl.textContent = 'n/a';
+    } else if (!storageResult.present) {
+        storageSessionEl.textContent = 'Missing';
+    } else {
+        const userLabel = formatUserLabel(storageResult.summary?.user);
+        const expiry = storageResult.summary?.expires_at ? formatExpiry(storageResult.summary.expires_at) : 'n/a';
+        storageSessionEl.textContent = `Present (${userLabel}, exp ${expiry})`;
+    }
+
+    let clientResult = {
+        authenticated: false,
+        summary: null,
+        expires_at_local: null,
+        error: null,
+    };
+
+    try {
+        const session = await getSession();
+        if (session) {
+            clientResult.authenticated = true;
+            clientResult.summary = summarizeSession(session);
+            if (clientResult.summary?.expires_at) {
+                clientResult.expires_at_local = formatExpiry(clientResult.summary.expires_at);
+            }
+        }
+    } catch (err) {
+        clientResult.error = err?.message || String(err);
+    }
+
+    if (clientResult.authenticated) {
+        const userLabel = formatUserLabel(clientResult.summary?.user);
+        const expiry = clientResult.summary?.expires_at ? formatExpiry(clientResult.summary.expires_at) : 'n/a';
+        clientSessionEl.textContent = `Authenticated (${userLabel}, exp ${expiry})`;
+    } else if (clientResult.error) {
+        clientSessionEl.textContent = `Error (${clientResult.error})`;
+    } else {
+        clientSessionEl.textContent = 'Not authenticated';
+    }
+
+    rawEl.textContent = JSON.stringify(
+        {
+            storageKey,
+            storage: storageResult,
+            client: clientResult,
+        },
+        null,
+        2
+    );
 }
 
 // =============================================================================
