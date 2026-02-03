@@ -35,6 +35,9 @@ async function init() {
         // Set up event listeners
         setupEventListeners();
 
+        // Listen for storage changes so UI stays updated after restart
+        chrome.storage.onChanged.addListener(handleStorageChange);
+
         // Check authentication state
         const authenticated = await isAuthenticated();
 
@@ -71,6 +74,32 @@ async function init() {
             showToast('Failed to initialize. Please try again.', 'error');
             showScreen('auth');
         }
+    }
+}
+
+/**
+ * Hydrate clipboard items from local cache
+ */
+async function hydrateFromCache() {
+    const cached = await getCachedItems();
+    if (Array.isArray(cached) && cached.length > 0) {
+        state.clipboardItems = cached;
+        renderClipboardItems();
+    }
+}
+
+/**
+ * Handle storage changes (durable UI updates)
+ * @param {Object} changes
+ * @param {string} area
+ */
+function handleStorageChange(changes, area) {
+    if (area !== 'local') return;
+
+    const cacheKey = CONFIG.STORAGE_KEYS.CACHED_ITEMS;
+    if (changes[cacheKey]) {
+        state.clipboardItems = changes[cacheKey].newValue || [];
+        renderClipboardItems();
     }
 }
 
@@ -121,6 +150,9 @@ async function loadMainScreen() {
 
     // Load user info for settings
     await loadUserInfo();
+
+    // Hydrate from cache immediately for fast UI
+    await hydrateFromCache();
 
     // Load clipboard items
     await refreshClipboardItems();
@@ -535,7 +567,8 @@ async function loadAutoCaptureStatus() {
     const toggle = document.getElementById('auto-capture-toggle');
 
     if (toggle) {
-        toggle.checked = result[key] === true;
+        // Default to true (enabled) unless explicitly disabled
+        toggle.checked = result[key] !== false;
     }
 }
 
@@ -544,28 +577,7 @@ async function handleAutoCapture(e) {
 
     try {
         if (enabled) {
-            // Request permissions directly in popup (requires user gesture)
-            // We request permissions and origins separately to ensure compatibility
-            const permissionsGranted = await chrome.permissions.request({
-                permissions: ['clipboardRead', 'scripting']
-            });
-
-            if (!permissionsGranted) {
-                e.target.checked = false;
-                showToast('Permissions denied', 'error');
-                return;
-            }
-
-            // Request host permissions
-            try {
-                await chrome.permissions.request({
-                    origins: ['<all_urls>']
-                });
-            } catch (err) {
-                console.log('Host permissions request failed or skipped:', err);
-            }
-
-            // Now notify background to enable the feature
+            // Permissions are now required in manifest, so we just enable the feature
             const result = await chrome.runtime.sendMessage({ type: 'ENABLE_AUTO_CAPTURE' });
             if (!result.success) {
                 e.target.checked = false;

@@ -145,6 +145,15 @@ async function performUpload(content, contentHash, origin) {
         // Update rate limit counter
         incrementRateLimit();
 
+        // Update local cache so popup can show new items immediately
+        try {
+            const cached = await getCachedItems();
+            const merged = [result, ...cached.filter(item => item.id !== result.id)];
+            await cacheItems(merged.slice(0, CONFIG.SYNC.MAX_ITEMS));
+        } catch (cacheErr) {
+            console.error('Cache update error:', cacheErr);
+        }
+
         return { success: true, item: result };
     } catch (err) {
         console.error('Upload error:', err);

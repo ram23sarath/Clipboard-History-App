@@ -28,8 +28,18 @@ async function initialize() {
     console.log('CloudClip: Initializing service worker...');
 
     try {
+        // Ensure defaults exist even if onInstalled didn't run (e.g., restart)
+        const onboardingKey = CONFIG.STORAGE_KEYS.ONBOARDING_COMPLETE;
+        const onboarding = await chrome.storage.local.get(onboardingKey);
+        if (typeof onboarding[onboardingKey] === 'undefined') {
+            await chrome.storage.local.set({ [onboardingKey]: false });
+        }
+
         // Listen for auth state changes
         onAuthStateChange(handleAuthStateChange);
+
+        // Ensure content scripts are injected into restored tabs on startup
+        await injectIntoOpenTabs();
 
         // Check if user is already authenticated
         const session = await getSession();
@@ -45,6 +55,17 @@ async function initialize() {
 }
 
 /**
+ * Update cached items in storage (durable UI updates)
+ * @param {Array} items
+ */
+async function updateCachedItems(items) {
+    await chrome.storage.local.set({
+        [CONFIG.STORAGE_KEYS.CACHED_ITEMS]: items,
+        [CONFIG.STORAGE_KEYS.LAST_SYNC]: Date.now(),
+    });
+}
+
+/**
  * Handle auth state changes
  * @param {string} event - Auth event type
  * @param {Object} session - Current session
@@ -54,6 +75,7 @@ async function handleAuthStateChange(event, session) {
 
     switch (event) {
         case 'SIGNED_IN':
+        case 'INITIAL_SESSION':
             if (session?.user) {
                 await handleUserLogin(session.user);
             }
@@ -92,10 +114,73 @@ async function handleUserLogin(user) {
         // Initial sync
         await syncClipboardItems();
 
+        // Process any locally cached pending uploads (from when SW was offline/not-authenticated)
+        await processPendingUploads();
+
         // Notify popup if open
         broadcastMessage({ type: 'AUTH_STATE_CHANGED', loggedIn: true, user });
     } catch (err) {
         console.error('CloudClip: Login handler error:', err);
+    }
+}
+
+/**
+ * Add a clipboard item to local cache marked as pending upload
+ * This ensures the popup shows the item immediately even if not authenticated
+ * @param {Object} payload
+ */
+async function addPendingCachedItem(payload) {
+    try {
+        const item = {
+            id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+            content: payload.content,
+            origin: payload.url || payload.origin || 'unknown',
+            page_title: payload.pageTitle || '',
+            created_at: payload.timestamp ? new Date(payload.timestamp).toISOString() : new Date().toISOString(),
+            pending: true,
+            device_id: await getDeviceId(),
+            device_name: await getDeviceName(),
+        };
+
+        const cached = await getCachedItems();
+        const merged = [item, ...cached.filter(i => i.id !== item.id)].slice(0, CONFIG.SYNC.MAX_ITEMS);
+        await updateCachedItems(merged);
+
+        // Broadcast so popup updates immediately
+        broadcastMessage({ type: 'NEW_CLIPBOARD_ITEM', item });
+    } catch (err) {
+        console.error('CloudClip: Failed to add pending cached item:', err);
+    }
+}
+
+/**
+ * Process pending cached items and attempt to upload them now that we're authenticated
+ */
+async function processPendingUploads() {
+    try {
+        const cached = await getCachedItems();
+        const pending = (cached || []).filter(i => i.pending);
+
+        if (!pending.length) return;
+
+        console.log('CloudClip: Processing pending uploads:', pending.length);
+
+        for (const p of pending) {
+            try {
+                const res = await uploadClipboardItem(p.content, { skipDebounce: true, origin: p.origin });
+                if (res.success && res.item) {
+                    // Replace pending entry with server result
+                    const updated = (await getCachedItems())
+                        .map(i => i.id === p.id ? res.item : i)
+                        .slice(0, CONFIG.SYNC.MAX_ITEMS);
+                    await updateCachedItems(updated);
+                }
+            } catch (err) {
+                console.error('CloudClip: Pending upload failed for item', p.id, err);
+            }
+        }
+    } catch (err) {
+        console.error('CloudClip: Error processing pending uploads:', err);
     }
 }
 
@@ -119,13 +204,28 @@ function handleUserLogout() {
 async function setupRealtimeSubscription() {
     realtimeSubscription = await subscribeToClipboardChanges(
         // On new item from another device
-        (item) => {
+        async (item) => {
             console.log('CloudClip: New item from another device:', item.id);
+            try {
+                const cached = await getCachedItems();
+                const merged = [item, ...cached.filter(i => i.id !== item.id)]
+                    .slice(0, CONFIG.SYNC.MAX_ITEMS);
+                await updateCachedItems(merged);
+            } catch (err) {
+                console.error('CloudClip: Cache update error:', err);
+            }
             broadcastMessage({ type: 'NEW_CLIPBOARD_ITEM', item });
         },
         // On item deleted
-        (item) => {
+        async (item) => {
             console.log('CloudClip: Item deleted:', item.id);
+            try {
+                const cached = await getCachedItems();
+                const filtered = cached.filter(i => i.id !== item.id);
+                await updateCachedItems(filtered);
+            } catch (err) {
+                console.error('CloudClip: Cache delete error:', err);
+            }
             broadcastMessage({ type: 'CLIPBOARD_ITEM_DELETED', itemId: item.id });
         }
     );
@@ -149,64 +249,66 @@ async function syncClipboardItems() {
 async function getAutoCaptureSetting() {
     const key = CONFIG.STORAGE_KEYS.AUTO_CAPTURE;
     const result = await chrome.storage.local.get(key);
-    return result[key] === true;
+    // Default to true (enabled) unless explicitly disabled
+    return result[key] !== false;
 }
 
 /**
  * Register dynamic content scripts
- * This ensures Chrome injects them automatically into all matching pages
+ * NOTE: With static content_scripts in manifest, we don't need dynamic registration
+ * The content script itself checks the auto-capture setting from storage
+ * This function is kept for backwards compatibility but does nothing
  */
 async function injectContentScripts() {
+    console.log('CloudClip: Content scripts loaded via manifest (static)');
+    // No-op - content scripts are now static in manifest.json
+    // They check auto-capture setting themselves via chrome.storage
+}
+
+/**
+ * Inject content script into currently open tabs (important after Chrome restart)
+ * Restored tabs may not have static content scripts injected until reload
+ */
+async function injectIntoOpenTabs() {
     try {
-        const SCRIPT_ID = 'cloudclip-content-script';
+        const autoCapture = await getAutoCaptureSetting();
+        if (!autoCapture) return;
 
-        // Check if already registered
-        const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [SCRIPT_ID] });
-        if (existing.length > 0) {
-            console.log('CloudClip: Content scripts already registered');
-            return;
-        }
-
-        // Register the script
-        await chrome.scripting.registerContentScripts([{
-            id: SCRIPT_ID,
-            js: ['src/content/content.js'],
-            matches: ['<all_urls>'],
-            runAt: 'document_start',
-        }]);
-
-        console.log('CloudClip: Content scripts registered');
-
-        // Also inject into currently open tabs immediately (for instant enablement)
         const tabs = await chrome.tabs.query({});
         for (const tab of tabs) {
-            if (tab.url?.startsWith('http')) {
-                chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    files: ['src/content/content.js']
-                }).catch(() => { }); // Ignore errors
-            }
+            await injectIntoTab(tab);
         }
-
     } catch (err) {
-        console.error('CloudClip: Error registering content scripts:', err);
+        console.error('CloudClip: Error injecting into open tabs:', err);
+    }
+}
+
+/**
+ * Inject content script into a single tab if eligible
+ * @param {chrome.tabs.Tab} tab
+ */
+async function injectIntoTab(tab) {
+    try {
+        if (!tab?.id) return;
+        if (!tab.url || !tab.url.startsWith('http')) return;
+
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
+            files: ['src/content/content.js']
+        });
+    } catch (err) {
+        // Ignore injection errors (e.g., restricted pages)
     }
 }
 
 /**
  * Unregister content scripts
+ * NOTE: With static manifest content scripts, we just notify them to disable
  */
 async function removeContentScripts() {
-    try {
-        const SCRIPT_ID = 'cloudclip-content-script';
-        await chrome.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] });
-        console.log('CloudClip: Content scripts unregistered');
-
-        // Notify existing instances to stop
-        broadcastToAllTabs({ type: 'DISABLE_CAPTURE' });
-    } catch (err) {
-        // Ignore error if not registered
-    }
+    console.log('CloudClip: Notifying content scripts to disable capture');
+    // Notify existing instances to stop capturing
+    broadcastToAllTabs({ type: 'DISABLE_CAPTURE' });
 }
 
 /**
@@ -242,9 +344,27 @@ async function broadcastToAllTabs(message) {
  * Handle messages from popup and content scripts
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // Handle async responses
-    handleMessage(message, sender).then(sendResponse);
-    return true; // Keep channel open for async response
+    // Handle async responses. Ensure we always call sendResponse (including on error)
+    initialize()
+        .then(() => handleMessage(message, sender))
+        .then((result) => {
+            try {
+                sendResponse(result);
+            } catch (err) {
+                console.error('CloudClip: Error sending response:', err);
+            }
+        })
+        .catch((err) => {
+            console.error('CloudClip: Message handler error:', err);
+            try {
+                sendResponse({ success: false, error: err?.message || String(err) });
+            } catch (e) {
+                console.error('CloudClip: Failed to send error response:', e);
+            }
+        });
+
+    // Return true to indicate we'll call sendResponse asynchronously.
+    return true;
 });
 
 /**
@@ -256,7 +376,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleMessage(message, sender) {
     const { type, payload } = message;
 
-    switch (type) {
+    try {
+        switch (type) {
         case 'CLIPBOARD_COPIED':
             return handleClipboardCopied(payload);
 
@@ -287,6 +408,10 @@ async function handleMessage(message, sender) {
             console.warn('CloudClip: Unknown message type:', type);
             return { error: 'Unknown message type' };
     }
+    } catch (err) {
+        console.error('CloudClip: Unhandled message error:', err);
+        return { success: false, error: err?.message || String(err) };
+    }
 }
 
 /**
@@ -312,8 +437,10 @@ async function handleClipboardCopied(payload) {
     console.log('CloudClip: Authenticated:', authenticated);
 
     if (!authenticated) {
-        console.log('CloudClip: Skipping - not authenticated');
-        return { success: false, error: 'Not authenticated' };
+        console.log('CloudClip: Not authenticated - caching pending item for later upload');
+        // Cache the item so popup shows it immediately and upload can be retried later
+        await addPendingCachedItem(payload);
+        return { success: true, pending: true };
     }
 
     // Upload to Supabase
@@ -322,6 +449,14 @@ async function handleClipboardCopied(payload) {
     console.log('CloudClip: Upload result:', result);
 
     if (result.success) {
+        try {
+            const cached = await getCachedItems();
+            const merged = [result.item, ...cached.filter(i => i.id !== result.item.id)]
+                .slice(0, CONFIG.SYNC.MAX_ITEMS);
+            await updateCachedItems(merged);
+        } catch (err) {
+            console.error('CloudClip: Cache update error:', err);
+        }
         broadcastMessage({ type: 'NEW_CLIPBOARD_ITEM', item: result.item });
     }
 
@@ -462,6 +597,23 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 chrome.runtime.onStartup.addListener(async () => {
     console.log('CloudClip: Extension started');
     await initialize();
+    await injectIntoOpenTabs();
+});
+
+// Inject on tab activation/update to handle restored tabs after Chrome restart
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+    try {
+        const tab = await chrome.tabs.get(tabId);
+        await injectIntoTab(tab);
+    } catch (err) {
+        // Ignore
+    }
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete') {
+        await injectIntoTab(tab);
+    }
 });
 
 /**

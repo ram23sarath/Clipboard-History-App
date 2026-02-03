@@ -3,6 +3,7 @@
  * Initializes and exports the Supabase client with session handling
  */
 
+// Import from node_modules - esbuild will bundle it
 import { createClient } from '@supabase/supabase-js';
 import { CONFIG, validateConfig } from '../config.js';
 
@@ -63,14 +64,26 @@ export function getSupabaseClient() {
  */
 export async function getSession() {
     const client = getSupabaseClient();
-    const { data: { session }, error } = await client.auth.getSession();
+    try {
+        const { data: { session }, error } = await client.auth.getSession();
 
-    if (error) {
-        console.error('Error getting session:', error);
+        if (error) {
+            // If the refresh token is invalid, force sign out to clear the bad state
+            if (error.message && (error.message.includes('Refresh Token Not Found') || error.message.includes('Invalid Refresh Token'))) {
+                console.log('CloudClip: Invalid session detected (bad refresh token), signing out...');
+                await client.auth.signOut().catch(() => { });
+                return null;
+            }
+
+            console.error('Error getting session:', error);
+            return null;
+        }
+
+        return session;
+    } catch (err) {
+        console.error('CloudClip: Unexpected error getting session:', err);
         return null;
     }
-
-    return session;
 }
 
 /**

@@ -1,17 +1,16 @@
 {
   "manifest_version": 3,
   "name": "CloudClip - Synced Clipboard",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Securely sync your clipboard across devices with cloud backup and privacy controls",
   "permissions": [
-    "storage"
-  ],
-  "optional_permissions": [
+    "storage",
     "clipboardRead",
     "clipboardWrite",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
-  "optional_host_permissions": [
+  "host_permissions": [
     "<all_urls>"
   ],
   "background": {
@@ -35,6 +34,13 @@
     "128": "icons/icon128.png"
   },
   "minimum_chrome_version": "109",
-  "content_scripts": [],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
   "web_accessible_resources": []
 }

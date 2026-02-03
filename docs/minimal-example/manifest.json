@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Clipboard Capture Demo",
+  "version": "1.0.0",
+  "description": "Minimal clipboard capture to Supabase",
+  
+  "permissions": [
+    "storage",
+    "clipboardRead"
+  ],
+  
+  "host_permissions": [
+    "https://*.supabase.co/*"
+  ],
+  
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}
