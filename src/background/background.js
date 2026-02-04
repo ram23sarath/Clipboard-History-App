@@ -18,7 +18,6 @@ import { CONFIG } from '../config.js';
 // State tracking
 let isInitialized = false;
 let realtimeSubscription = null;
-let reinjectTimeouts = [];
 const DEBUG_PREFIX = 'CloudClip:DEBUG';
 
 /**
@@ -44,10 +43,6 @@ async function initialize() {
         // Listen for auth state changes
         onAuthStateChange(handleAuthStateChange);
         console.log(`${DEBUG_PREFIX} auth listener registered`);
-
-        // Ensure content scripts are injected into restored tabs on startup
-        await injectIntoOpenTabs();
-        console.log(`${DEBUG_PREFIX} injectIntoOpenTabs complete (init)`);
 
         // Check if user is already authenticated
         const session = await getSession();
@@ -125,12 +120,6 @@ async function handleUserLogin(user) {
 
         // Check if auto-capture is enabled
         const autoCapture = await getAutoCaptureSetting();
-        if (autoCapture) {
-            await injectContentScripts();
-            await injectIntoOpenTabs();
-            clearReinjectSchedules();
-            scheduleReinject(1500, 'post-login');
-        }
         console.log(`${DEBUG_PREFIX} autoCapture`, { enabled: autoCapture });
 
         // Set up Realtime subscription
@@ -224,7 +213,7 @@ function handleUserLogout() {
     // Clean up
     unsubscribeFromClipboardChanges();
     clearPendingUploads();
-    clearReinjectSchedules();
+    // No reinjection needed with declarative content scripts
 
     // Notify popup
     broadcastMessage({ type: 'AUTH_STATE_CHANGED', loggedIn: false });
@@ -293,74 +282,7 @@ async function getAutoCaptureSetting() {
  */
 async function injectContentScripts() {
     console.log('CloudClip: Content scripts loaded via manifest (static)');
-    // No-op - content scripts are now static in manifest.json
-    // They check auto-capture setting themselves via chrome.storage
-}
-
-/**
- * Inject content script into currently open tabs (important after Chrome restart)
- * Restored tabs may not have static content scripts injected until reload
- */
-async function injectIntoOpenTabs() {
-    try {
-        const autoCapture = await getAutoCaptureSetting();
-        if (!autoCapture) return;
-
-        const tabs = await chrome.tabs.query({});
-        console.log(`${DEBUG_PREFIX} injectIntoOpenTabs`, { count: tabs.length });
-        for (const tab of tabs) {
-            await injectIntoTab(tab);
-        }
-    } catch (err) {
-        console.error('CloudClip: Error injecting into open tabs:', err);
-        console.error(`${DEBUG_PREFIX} injectIntoOpenTabs error`, err);
-    }
-}
-
-/**
- * Schedule a re-injection pass to catch restored tabs
- * @param {number} delayMs
- * @param {string} reason
- */
-function scheduleReinject(delayMs, reason = 'startup') {
-    const timeoutId = setTimeout(async () => {
-        console.log(`CloudClip: Re-injecting content scripts (${reason})`);
-        await injectIntoOpenTabs();
-    }, delayMs);
-
-    reinjectTimeouts.push(timeoutId);
-}
-
-/**
- * Clear scheduled reinjection timers
- */
-function clearReinjectSchedules() {
-    reinjectTimeouts.forEach((id) => clearTimeout(id));
-    reinjectTimeouts = [];
-}
-
-/**
- * Inject content script into a single tab if eligible
- * @param {chrome.tabs.Tab} tab
- */
-async function injectIntoTab(tab) {
-    try {
-        if (!tab?.id) return;
-        if (!tab.url || !tab.url.startsWith('http')) return;
-
-        await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: true },
-            files: ['src/content/content.js']
-        });
-        console.log(`${DEBUG_PREFIX} injected`, { tabId: tab.id, url: tab.url });
-    } catch (err) {
-        // Ignore injection errors (e.g., restricted pages)
-        console.warn(`${DEBUG_PREFIX} injectIntoTab failed`, {
-            tabId: tab?.id || null,
-            url: tab?.url || null,
-            error: err?.message || String(err)
-        });
-    }
+    // No-op - content scripts are declarative in manifest.json
 }
 
 /**
@@ -480,8 +402,7 @@ async function handleMessage(message, sender) {
             return handleDisableAutoCapture();
 
         case 'ENSURE_CONTENT_SCRIPTS':
-            await injectIntoOpenTabs();
-            return { success: true };
+            return { success: true, mode: 'manifest' };
 
         case 'GET_AUTH_STATE':
             const authenticated = await isAuthenticated();
@@ -567,7 +488,7 @@ async function handleEnableAutoCapture() {
     try {
         // Verify we have permissions (requested by popup)
         const hasPermissions = await chrome.permissions.contains({
-            permissions: ['clipboardRead', 'scripting']
+            permissions: ['clipboardRead']
         });
 
         if (!hasPermissions) {
@@ -695,29 +616,6 @@ globalThis.chrome?.runtime?.onStartup?.addListener(async () => {
     console.log('CloudClip: Extension started');
     console.log(`${DEBUG_PREFIX} onStartup`);
     await initialize();
-    await injectIntoOpenTabs();
-    clearReinjectSchedules();
-    scheduleReinject(1500, 'startup');
-    scheduleReinject(5000, 'startup');
-});
-
-// Inject on tab activation/update to handle restored tabs after Chrome restart
-globalThis.chrome?.tabs?.onActivated?.addListener(async ({ tabId }) => {
-    try {
-        const tab = await chrome.tabs.get(tabId);
-        await injectIntoTab(tab);
-        console.log(`${DEBUG_PREFIX} onActivated`, { tabId });
-    } catch (err) {
-        // Ignore
-        console.warn(`${DEBUG_PREFIX} onActivated error`, err);
-    }
-});
-
-globalThis.chrome?.tabs?.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status === 'complete') {
-        await injectIntoTab(tab);
-        console.log(`${DEBUG_PREFIX} onUpdated complete`, { tabId, url: tab?.url || null });
-    }
 });
 
 /**
