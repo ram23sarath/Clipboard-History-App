@@ -84,10 +84,21 @@ async function init() {
  * Hydrate clipboard items from local cache
  */
 async function hydrateFromCache() {
-    const cached = await getCachedItems();
-    if (Array.isArray(cached) && cached.length > 0) {
-        state.clipboardItems = cached;
-        renderClipboardItems();
+    try {
+        const cached = await getCachedItems();
+        console.log('CloudClip:DEBUG hydrateFromCache', { 
+            cached: cached, 
+            count: Array.isArray(cached) ? cached.length : 0 
+        });
+        if (Array.isArray(cached) && cached.length > 0) {
+            state.clipboardItems = cached;
+            renderClipboardItems();
+            console.log('CloudClip:DEBUG cache hydrated', { count: cached.length });
+        } else {
+            console.log('CloudClip:DEBUG cache empty');
+        }
+    } catch (err) {
+        console.error('CloudClip: Cache hydration error:', err);
     }
 }
 
@@ -132,6 +143,8 @@ async function setOnboardingStatus(complete) {
  * Show a specific screen
  */
 function showScreen(screenName) {
+    console.log('CloudClip:DEBUG showScreen called', { screenName });
+    
     // Hide all screens
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
@@ -139,12 +152,18 @@ function showScreen(screenName) {
 
     // Show target screen
     const screen = document.getElementById(`${screenName}-screen`);
+    console.log('CloudClip:DEBUG showScreen lookup', { screenName, found: !!screen });
+    
     if (screen) {
         screen.classList.add('active');
         state.currentScreen = screenName;
+        console.log('CloudClip:DEBUG showScreen active', { screenName, hasActive: screen.classList.contains('active') });
+        
         if (screenName === 'settings') {
             updateDebugPanel();
         }
+    } else {
+        console.warn(`CloudClip: Screen ${screenName}-screen not found!`);
     }
 }
 
@@ -391,31 +410,59 @@ async function refreshClipboardItems() {
     setSyncStatus('syncing');
 
     try {
-        // Try to fetch from server
-        const result = await fetchClipboardItems();
+        console.log('CloudClip:DEBUG refreshClipboardItems start');
+        
+        // Ensure we're authenticated
+        const authenticated = await isAuthenticated();
+        console.log('CloudClip:DEBUG refreshClipboardItems authenticated', { authenticated });
+        
+        if (!authenticated) {
+            console.warn('CloudClip: Not authenticated, cannot fetch items');
+            setSyncStatus('error');
+            return { success: false, error: 'Not authenticated' };
+        }
 
-        if (result.success) {
+        // Fetch from Supabase
+        const result = await fetchClipboardItems();
+        console.log('CloudClip:DEBUG fetchClipboardItems result', { 
+            success: result.success, 
+            count: result.items?.length || 0,
+            error: result.error 
+        });
+
+        if (result.success && result.items) {
+            console.log('CloudClip:DEBUG before assign', { itemsCount: result.items?.length, firstItem: result.items?.[0] });
             state.clipboardItems = result.items;
+            console.log('CloudClip:DEBUG after assign', { stateCount: state.clipboardItems?.length, stateFirst: state.clipboardItems?.[0] });
             renderClipboardItems();
             setSyncStatus('synced');
+            console.log('CloudClip:DEBUG items rendered', { count: result.items.length });
+            return result;
         } else {
-            // Fall back to cached items
-            const cached = await getCachedItems();
-            state.clipboardItems = cached;
-            renderClipboardItems();
+            console.error('CloudClip: Fetch failed:', result.error);
             setSyncStatus('error');
+            return result;
         }
     } catch (err) {
-        console.error('Refresh error:', err);
+        console.error('CloudClip: Refresh error:', err);
+        console.error('CloudClip:DEBUG refreshClipboardItems error', err);
         setSyncStatus('error');
+        return { success: false, error: err.message };
     }
 }
 
 function renderClipboardItems() {
+    console.log('CloudClip:DEBUG renderClipboardItems called', { stateCount: state.clipboardItems?.length });
+    
     const container = document.getElementById('clipboard-list');
     const emptyState = document.getElementById('empty-state');
 
-    if (!container) return;
+    console.log('CloudClip:DEBUG render setup', { hasContainer: !!container, hasEmptyState: !!emptyState });
+
+    if (!container) {
+        console.warn('CloudClip: clipboard-list container not found!');
+        return;
+    }
 
     // Filter by search query
     let items = state.clipboardItems;
@@ -426,13 +473,17 @@ function renderClipboardItems() {
         );
     }
 
+    console.log('CloudClip:DEBUG items after filter', { count: items?.length });
+
     // Show empty state if no items
     if (items.length === 0) {
+        console.log('CloudClip:DEBUG showing empty state');
         container.innerHTML = '';
         emptyState?.classList.remove('hidden');
         return;
     }
 
+    console.log('CloudClip:DEBUG rendering items', { count: items.length });
     emptyState?.classList.add('hidden');
 
     // Render items
@@ -450,6 +501,8 @@ function renderClipboardItems() {
       </div>
     </div>
   `).join('');
+
+    console.log('CloudClip:DEBUG rendered HTML', { containerInner: container.innerHTML?.length });
 
     // Add click handlers
     container.querySelectorAll('.clipboard-item').forEach(el => {

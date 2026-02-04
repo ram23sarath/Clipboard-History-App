@@ -1,7 +1,3 @@
-/**
- * Minimal Content Script - Copy Event Capture
- * This script captures copy events and sends them to the background service worker
- */
 
 (function() {
     // Prevent double injection

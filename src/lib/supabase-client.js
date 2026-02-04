@@ -124,6 +124,10 @@ export async function refreshSession() {
     const { data: { session }, error } = await client.auth.refreshSession();
 
     if (error) {
+        // Expected when there is no stored session after restart.
+        if (error?.message && error.message.includes('Auth session missing')) {
+            return null;
+        }
         console.error('Error refreshing session:', error);
         return null;
     }

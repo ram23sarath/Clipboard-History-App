@@ -7,7 +7,10 @@
     "storage",
     "clipboardRead",
     "clipboardWrite",
-    "tabs"
+    "offscreen",
+    "scripting",
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

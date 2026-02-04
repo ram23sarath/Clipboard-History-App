@@ -3,8 +3,9 @@
  * Handles clipboard sync, message routing, and Realtime subscriptions
  */
 
-import { getSupabaseClient, getSession, onAuthStateChange, isAuthenticated } from '../lib/supabase-client.js';
-import { updateDeviceRecord, getDeviceId } from '../lib/device.js';
+import { getSupabaseClient, getSession, onAuthStateChange, isAuthenticated, refreshSession } from '../lib/supabase-client.js';
+// FIX: Added 'getDeviceName' to imports. It was used in addPendingCachedItem but missing here.
+import { updateDeviceRecord, getDeviceId, getDeviceName } from '../lib/device.js';
 import {
     uploadClipboardItem,
     fetchClipboardItems,
@@ -16,54 +17,94 @@ import {
 import { CONFIG } from '../config.js';
 
 // State tracking
-let isInitialized = false;
+// FIX: Use a Promise to track initialization state, not a boolean
+let initPromise = null;
 let realtimeSubscription = null;
 const DEBUG_PREFIX = 'CloudClip:DEBUG';
 
 /**
- * Initialize the service worker
+ * Initialize the service worker (Promise Singleton)
+ * Ensures initialization only runs once per SW lifecycle
+ * CRITICAL: Must complete within ~25s or SW will be killed
  */
-async function initialize() {
-    if (isInitialized) return;
+function initialize() {
+    // If initialization is already running or complete, return the existing promise
+    if (initPromise) return initPromise;
 
-    console.log('CloudClip: Initializing service worker...');
-    console.log(`${DEBUG_PREFIX} init start`, {
-        time: new Date().toISOString(),
-        runtimeId: chrome.runtime?.id || null
-    });
-
-    try {
-        // Ensure defaults exist even if onInstalled didn't run (e.g., restart)
-        const onboardingKey = CONFIG.STORAGE_KEYS.ONBOARDING_COMPLETE;
-        const onboarding = await chrome.storage.local.get(onboardingKey);
-        if (typeof onboarding[onboardingKey] === 'undefined') {
-            await chrome.storage.local.set({ [onboardingKey]: false });
-        }
-
-        // Listen for auth state changes
-        onAuthStateChange(handleAuthStateChange);
-        console.log(`${DEBUG_PREFIX} auth listener registered`);
-
-        // Check if user is already authenticated
-        const session = await getSession();
-        console.log(`${DEBUG_PREFIX} getSession (init)`, {
-            hasSession: !!session,
-            userId: session?.user?.id || null,
-            expiresAt: session?.expires_at || null
+    // Otherwise, start initialization with timeout protection
+    initPromise = (async () => {
+        console.log('CloudClip: Initializing service worker...');
+        console.log(`${DEBUG_PREFIX} init start`, {
+            time: new Date().toISOString(),
+            runtimeId: chrome.runtime?.id || null
         });
-        if (session?.user) {
-            await handleUserLogin(session.user);
-        }
 
-        isInitialized = true;
-        console.log('CloudClip: Service worker initialized');
-        console.log(`${DEBUG_PREFIX} init complete`, {
-            time: new Date().toISOString()
-        });
-    } catch (err) {
-        console.error('CloudClip: Initialization error:', err);
-        console.error(`${DEBUG_PREFIX} init error`, err);
-    }
+        try {
+            // Ensure defaults exist even if onInstalled didn't run (e.g., restart)
+            const onboardingKey = CONFIG.STORAGE_KEYS.ONBOARDING_COMPLETE;
+            const onboarding = await chrome.storage.local.get(onboardingKey);
+            if (typeof onboarding[onboardingKey] === 'undefined') {
+                await chrome.storage.local.set({ [onboardingKey]: false });
+            }
+
+            // Listen for auth state changes
+            // Register this BEFORE checking session to catch immediate updates
+            onAuthStateChange(handleAuthStateChange);
+            console.log(`${DEBUG_PREFIX} auth listener registered`);
+
+            // Wrap session check in timeout to prevent hanging
+            const sessionWithTimeout = async (timeoutMs = 10000) => {
+                return Promise.race([
+                    (async () => {
+                        let session = await getSession();
+                        if (!session?.user) {
+                            console.log('CloudClip: No active session, attempting refresh...');
+                            session = await refreshSession();
+                        }
+                        return session;
+                    })(),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Session check timeout')), timeoutMs)
+                    )
+                ]);
+            };
+
+            let session = null;
+            try {
+                session = await sessionWithTimeout(10000);
+                console.log(`${DEBUG_PREFIX} getSession (init)`, {
+                    hasSession: !!session,
+                    userId: session?.user?.id || null,
+                    expiresAt: session?.expires_at || null
+                });
+            } catch (timeoutErr) {
+                console.warn('CloudClip: Session check timed out, will retry on next wake');
+                // Don't fail init - alarm will retry later
+            }
+
+            if (session?.user) {
+                // Do not block initialization on network-dependent startup work
+                handleUserLogin(session.user).catch((err) => {
+                    console.error('CloudClip: handleUserLogin (init) error:', err);
+                });
+            } else {
+                console.log('CloudClip: No active session found during init');
+            }
+
+            console.log('CloudClip: Service worker initialized');
+            console.log(`${DEBUG_PREFIX} init complete`, {
+                time: new Date().toISOString()
+            });
+        } catch (err) {
+            console.error('CloudClip: Initialization error:', err);
+            console.error(`${DEBUG_PREFIX} init error`, err);
+            // Reset promise on error so we can retry later
+            initPromise = null;
+            throw err;
+        }
+    })();
+
+    return initPromise;
 }
 
 /**
@@ -89,7 +130,10 @@ async function handleAuthStateChange(event, session) {
         case 'SIGNED_IN':
         case 'INITIAL_SESSION':
             if (session?.user) {
-                await handleUserLogin(session.user);
+                // Fire-and-forget to avoid blocking auth event handler
+                handleUserLogin(session.user).catch((err) => {
+                    console.error('CloudClip: handleUserLogin (auth) error:', err);
+                });
             }
             break;
 
@@ -114,6 +158,12 @@ async function handleUserLogin(user) {
         email: user?.email || null
     });
 
+    // Safety check: Prevent tearing down an existing connection unnecessarily
+    if (realtimeSubscription) {
+        console.log('CloudClip: Realtime subscription already exists, skipping setup.');
+        return;
+    }
+
     try {
         // Register/update device
         await updateDeviceRecord(user.id);
@@ -130,7 +180,7 @@ async function handleUserLogin(user) {
         await syncClipboardItems();
         console.log(`${DEBUG_PREFIX} initial sync complete`);
 
-        // Process any locally cached pending uploads (from when SW was offline/not-authenticated)
+        // Process any locally cached pending uploads
         await processPendingUploads();
         console.log(`${DEBUG_PREFIX} pending uploads processed`);
 
@@ -150,6 +200,14 @@ async function handleUserLogin(user) {
  */
 async function addPendingCachedItem(payload) {
     try {
+        // FIX: Ensure getDeviceName is safe to call
+        let deviceName = 'Chrome Extension';
+        try {
+            if (typeof getDeviceName === 'function') {
+                deviceName = await getDeviceName();
+            }
+        } catch (e) { console.warn('Could not get device name', e); }
+
         const item = {
             id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
             content: payload.content,
@@ -158,7 +216,7 @@ async function addPendingCachedItem(payload) {
             created_at: payload.timestamp ? new Date(payload.timestamp).toISOString() : new Date().toISOString(),
             pending: true,
             device_id: await getDeviceId(),
-            device_name: await getDeviceName(),
+            device_name: deviceName,
         };
 
         const cached = await getCachedItems();
@@ -186,6 +244,13 @@ async function processPendingUploads() {
 
         for (const p of pending) {
             try {
+                // Validate auth before trying to upload
+                const isAuth = await isAuthenticated();
+                if (!isAuth) {
+                    console.log('CloudClip: Aborting pending upload - not authenticated');
+                    return;
+                }
+
                 const res = await uploadClipboardItem(p.content, { skipDebounce: true, origin: p.origin });
                 if (res.success && res.item) {
                     // Replace pending entry with server result
@@ -211,9 +276,9 @@ function handleUserLogout() {
     console.log(`${DEBUG_PREFIX} handleUserLogout`);
 
     // Clean up
+    realtimeSubscription = null; // Clear tracking variable
     unsubscribeFromClipboardChanges();
     clearPendingUploads();
-    // No reinjection needed with declarative content scripts
 
     // Notify popup
     broadcastMessage({ type: 'AUTH_STATE_CHANGED', loggedIn: false });
@@ -223,6 +288,9 @@ function handleUserLogout() {
  * Set up Realtime subscription for clipboard changes
  */
 async function setupRealtimeSubscription() {
+    // Prevent duplicate subscriptions
+    if (realtimeSubscription) return;
+
     realtimeSubscription = await subscribeToClipboardChanges(
         // On new item from another device
         async (item) => {
@@ -274,26 +342,9 @@ async function getAutoCaptureSetting() {
     return result[key] !== false;
 }
 
-/**
- * Register dynamic content scripts
- * NOTE: With static content_scripts in manifest, we don't need dynamic registration
- * The content script itself checks the auto-capture setting from storage
- * This function is kept for backwards compatibility but does nothing
- */
-async function injectContentScripts() {
-    console.log('CloudClip: Content scripts loaded via manifest (static)');
-    // No-op - content scripts are declarative in manifest.json
-}
+// Content scripts are declarative via manifest.json - no dynamic injection needed
 
-/**
- * Unregister content scripts
- * NOTE: With static manifest content scripts, we just notify them to disable
- */
-async function removeContentScripts() {
-    console.log('CloudClip: Notifying content scripts to disable capture');
-    // Notify existing instances to stop capturing
-    broadcastToAllTabs({ type: 'DISABLE_CAPTURE' });
-}
+// Content scripts react to storage changes - no explicit disable broadcast needed
 
 /**
  * Broadcast message to popup
@@ -323,54 +374,7 @@ async function broadcastToAllTabs(message) {
 // =============================================================================
 // MESSAGE HANDLERS
 // =============================================================================
-
-/**
- * Handle messages from popup and content scripts
- */
-const runtimeApi = globalThis.chrome?.runtime;
-if (!runtimeApi?.onMessage) {
-    console.error('CloudClip: runtime.onMessage is unavailable', {
-        hasChrome: !!globalThis.chrome,
-        hasRuntime: !!globalThis.chrome?.runtime,
-    });
-} else {
-    try {
-        runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
-            console.log(`${DEBUG_PREFIX} onMessage`, {
-                type: message?.type || null,
-                from: sender?.tab?.id || 'extension',
-                url: sender?.tab?.url || null
-            });
-            if (message?.type === 'PING') {
-                sendResponse({ pong: true });
-                return;
-            }
-            // Handle async responses. Ensure we always call sendResponse (including on error)
-            initialize()
-                .then(() => handleMessage(message, sender))
-                .then((result) => {
-                    try {
-                        sendResponse(result);
-                    } catch (err) {
-                        console.error('CloudClip: Error sending response:', err);
-                    }
-                })
-                .catch((err) => {
-                    console.error('CloudClip: Message handler error:', err);
-                    try {
-                        sendResponse({ success: false, error: err?.message || String(err) });
-                    } catch (e) {
-                        console.error('CloudClip: Failed to send error response:', e);
-                    }
-                });
-
-            // Return true to indicate we'll call sendResponse asynchronously.
-            return true;
-        });
-    } catch (err) {
-        console.error('CloudClip: Failed to register runtime.onMessage listener', err);
-    }
-}
+// Message listener is registered at top-level in boot section below
 
 /**
  * Process incoming messages
@@ -449,8 +453,23 @@ async function handleClipboardCopied(payload) {
         return { success: false, error: 'Auto-capture disabled' };
     }
 
-    // Check if authenticated
-    const authenticated = await isAuthenticated();
+    // FIX: Enhanced Auth Check
+    // On reload, isAuthenticated might briefly be false while token refreshes
+    let authenticated = await isAuthenticated();
+    
+    // If not authenticated, try strict session check + refresh once
+    if (!authenticated) {
+        console.log('CloudClip: Auth check failed, attempting strict session check...');
+        let session = await getSession();
+        if (!session?.user) {
+            console.log('CloudClip: No session, attempting refreshSession...');
+            session = await refreshSession();
+        }
+        if (session?.user) {
+            authenticated = true;
+        }
+    }
+    
     console.log('CloudClip: Authenticated:', authenticated);
     console.log(`${DEBUG_PREFIX} authenticated`, { authenticated });
 
@@ -463,7 +482,8 @@ async function handleClipboardCopied(payload) {
 
     // Upload to Supabase
     console.log('CloudClip: Uploading content to Supabase...');
-    const result = await uploadClipboardItem(content, { origin: url });
+    // Skip debounce in MV3 SW to avoid timer suspension after restart
+    const result = await uploadClipboardItem(content, { origin: url, skipDebounce: true });
     console.log('CloudClip: Upload result:', result);
 
     if (result.success) {
@@ -476,6 +496,10 @@ async function handleClipboardCopied(payload) {
             console.error('CloudClip: Cache update error:', err);
         }
         broadcastMessage({ type: 'NEW_CLIPBOARD_ITEM', item: result.item });
+    } else {
+        // FIX: Fallback to pending if network upload fails despite being authenticated
+        console.warn('CloudClip: Upload failed (network?), saving as pending');
+        await addPendingCachedItem(payload);
     }
 
     return result;
@@ -495,13 +519,10 @@ async function handleEnableAutoCapture() {
             return { success: false, error: 'Permissions not granted' };
         }
 
-        // Save setting
+        // Save setting - content scripts react via storage.onChanged
         await chrome.storage.local.set({
             [CONFIG.STORAGE_KEYS.AUTO_CAPTURE]: true
         });
-
-        // Inject content scripts
-        await injectContentScripts();
 
         return { success: true };
     } catch (err) {
@@ -515,13 +536,10 @@ async function handleEnableAutoCapture() {
  */
 async function handleDisableAutoCapture() {
     try {
-        // Save setting
+        // Save setting - content scripts react via storage.onChanged
         await chrome.storage.local.set({
             [CONFIG.STORAGE_KEYS.AUTO_CAPTURE]: false
         });
-
-        // Notify content scripts to stop
-        await removeContentScripts();
 
         return { success: true };
     } catch (err) {
@@ -589,33 +607,53 @@ async function copyToClipboardViaOffscreen(text) {
 }
 
 // =============================================================================
-// LIFECYCLE EVENTS
+// LIFECYCLE EVENTS (registered synchronously)
 // =============================================================================
 
 /**
  * Handle extension install/update
+ * Non-blocking - fire-and-forget initialization
  */
-globalThis.chrome?.runtime?.onInstalled?.addListener(async (details) => {
+chrome.runtime.onInstalled.addListener((details) => {
     console.log('CloudClip: Extension installed/updated:', details.reason);
 
-    if (details.reason === 'install') {
-        // First install - open onboarding
-        await chrome.storage.local.set({
-            [CONFIG.STORAGE_KEYS.ONBOARDING_COMPLETE]: false
-        });
-    }
-
-    // Initialize
-    await initialize();
+    // Fire-and-forget: don't await, don't block
+    (async () => {
+        try {
+            if (details.reason === 'install') {
+                await chrome.storage.local.set({
+                    [CONFIG.STORAGE_KEYS.ONBOARDING_COMPLETE]: false
+                });
+            }
+            // Ensure alarm is set
+            await ensureAlarmSet();
+            // Initialize (non-blocking)
+            await initialize();
+        } catch (err) {
+            console.error('CloudClip: onInstalled handler error:', err);
+        }
+    })();
 });
 
 /**
- * Handle extension startup
+ * Handle extension startup (Chrome launch)
+ * Non-blocking - fire-and-forget initialization
  */
-globalThis.chrome?.runtime?.onStartup?.addListener(async () => {
-    console.log('CloudClip: Extension started');
+chrome.runtime.onStartup.addListener(() => {
+    console.log('CloudClip: Extension started (onStartup)');
     console.log(`${DEBUG_PREFIX} onStartup`);
-    await initialize();
+
+    // Fire-and-forget: don't await, don't block
+    (async () => {
+        try {
+            // Ensure alarm is set on every startup
+            await ensureAlarmSet();
+            // Initialize (non-blocking)
+            await initialize();
+        } catch (err) {
+            console.error('CloudClip: onStartup handler error:', err);
+        }
+    })();
 });
 
 /**
@@ -630,35 +668,129 @@ try {
 
 
 
-/**
- * Keep service worker alive
- * Service workers can be terminated after 30s of inactivity
- */
-const KEEP_ALIVE_INTERVAL = 20000; // 20 seconds
-let lastSupabasePing = Date.now();
-const SUPABASE_PING_INTERVAL = 3600000; // 1 hour
+// =============================================================================
+// TOP-LEVEL BOOT (runs synchronously on every SW start)
+// =============================================================================
+console.log('CloudClip:SW_BOOT', { time: new Date().toISOString(), runtimeId: chrome.runtime?.id });
 
-setInterval(async () => {
-    // Ping to keep alive, but only if user is authenticated
-    const authenticated = await isAuthenticated();
-    if (authenticated) {
-        console.debug('CloudClip: Keep-alive ping');
+// -----------------------------------------------------------------------------
+// ALARM-BASED WAKE STRATEGY (replaces broken setInterval)
+// -----------------------------------------------------------------------------
+const ALARM_NAME = 'cloudclip-keepalive';
+const ALARM_PERIOD_MINUTES = 1; // Wake every 1 minute (minimum allowed)
 
-        // Periodically ping Supabase to prevent project pausing
-        const now = Date.now();
-        if (now - lastSupabasePing > SUPABASE_PING_INTERVAL) {
-            console.log('CloudClip: Pinging Supabase to prevent sleep...');
-            try {
-                const client = getSupabaseClient();
-                // Lightweight query just to touch the DB
-                await client.from('clipboard_items').select('count', { count: 'exact', head: true });
-                lastSupabasePing = now;
-            } catch (err) {
-                console.error('CloudClip: Supabase ping failed:', err);
-            }
-        }
+// Register alarm listener SYNCHRONOUSLY at top-level
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === ALARM_NAME) {
+        console.log('CloudClip: Alarm woke service worker');
+        // Fire-and-forget: perform periodic tasks
+        handleAlarmWake().catch((err) => {
+            console.error('CloudClip: Alarm handler error:', err);
+        });
     }
-}, KEEP_ALIVE_INTERVAL);
+});
 
-// Initialize on load
-initialize();
+/**
+ * Handle alarm wake - perform periodic sync/maintenance
+ * Non-blocking, idempotent
+ */
+async function handleAlarmWake() {
+    try {
+        const authenticated = await isAuthenticated();
+        if (!authenticated) {
+            console.log('CloudClip: Alarm wake - not authenticated, skipping');
+            return;
+        }
+
+        console.log('CloudClip: Alarm wake - processing');
+
+        // Re-establish Realtime subscription if lost
+        if (!realtimeSubscription) {
+            await setupRealtimeSubscription();
+        }
+
+        // Process any pending uploads
+        await processPendingUploads();
+
+    } catch (err) {
+        console.error('CloudClip: Alarm wake processing error:', err);
+    }
+}
+
+/**
+ * Ensure keepalive alarm is set (idempotent)
+ */
+async function ensureAlarmSet() {
+    try {
+        const existing = await chrome.alarms.get(ALARM_NAME);
+        if (!existing) {
+            await chrome.alarms.create(ALARM_NAME, {
+                delayInMinutes: 1,
+                periodInMinutes: ALARM_PERIOD_MINUTES
+            });
+            console.log('CloudClip: Keepalive alarm created');
+        }
+    } catch (err) {
+        console.error('CloudClip: Failed to set alarm:', err);
+    }
+}
+
+// Register message listener SYNCHRONOUSLY (before any async work)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log(`${DEBUG_PREFIX} onMessage`, {
+        type: message?.type || null,
+        from: sender?.tab?.id || 'extension',
+        url: sender?.tab?.url || null
+    });
+    
+    if (message?.type === 'PING') {
+        sendResponse({ pong: true });
+        return;
+    }
+
+    // Always trigger initialization, but don't block message handling on it.
+    // This prevents restart/idle delays from dropping clipboard events.
+    const initTask = initialize().catch((err) => {
+        console.error('CloudClip: initialize error (non-blocking)', err);
+        return null;
+    });
+
+    const handleAndRespond = () => {
+        return handleMessage(message, sender)
+            .then((result) => {
+                try {
+                    sendResponse(result);
+                } catch (err) {
+                    console.error('CloudClip: Error sending response:', err);
+                }
+            })
+            .catch((err) => {
+                console.error('CloudClip: Message handler error:', err);
+                try {
+                    sendResponse({ success: false, error: err?.message || String(err) });
+                } catch (e) {
+                    console.error('CloudClip: Failed to send error response:', e);
+                }
+            });
+    };
+
+    // For CLIPBOARD_COPIED, do not wait for init to avoid missing copies after restart.
+    if (message?.type === 'CLIPBOARD_COPIED') {
+        handleAndRespond();
+    } else {
+        initTask.then(handleAndRespond);
+    }
+
+    // Return true to indicate we'll call sendResponse asynchronously.
+    return true;
+});
+
+console.log('CloudClip:SW_LISTENER_REGISTERED');
+
+// Set alarm IMMEDIATELY (idempotent, synchronous initiation)
+ensureAlarmSet();
+
+// Initialize IMMEDIATELY on every service worker start (non-blocking)
+initialize().catch((err) => {
+    console.error('CloudClip: Top-level initialize error:', err);
+});

@@ -3,24 +3,24 @@
  * Listens for copy events and sends clipboard content to background worker
  */
 
-// IMMEDIATE LOG - This should appear if the file loads at all
-console.log('🔵 CloudClip: Content script FILE LOADED');
-console.log('CloudClip:DEBUG content boot', {
-    href: window.location.href,
-    top: window === window.top
-});
+// =============================================================================
+// DUPLICATE INJECTION GUARD (must be first)
+// =============================================================================
+const CLOUDCLIP_INIT_KEY = '__cloudClipInitialized_v1';
 
-const CLOUDCLIP_STATE_KEY = '__cloudClipContentState';
-const existingState = window[CLOUDCLIP_STATE_KEY];
-
-// Prevent multiple injections
-if (existingState?.initialized) {
-    console.log('🟡 CloudClip: Content script already initialized (duplicate run)');
+// Check BEFORE any other code runs
+if (window[CLOUDCLIP_INIT_KEY] === true) {
+    console.log('CloudClip:GUARD duplicate injection blocked', { href: location.href });
+    // Early exit - do not re-run any initialization
 } else {
-    const state = existingState || {};
-    state.initialized = true;
-    window[CLOUDCLIP_STATE_KEY] = state;
-    console.log('🟢 CloudClip: Setting content state initialized');
+    // Mark as initialized IMMEDIATELY
+    window[CLOUDCLIP_INIT_KEY] = true;
+    
+    console.log('CloudClip:BOOT content script loaded', {
+        href: location.href,
+        isTop: window === window.top,
+        time: new Date().toISOString()
+    });
 
     /**
      * State tracking
@@ -29,6 +29,11 @@ if (existingState?.initialized) {
     let lastCopiedContent = '';
     let lastCopyTime = 0;
     const COPY_DEBOUNCE_MS = 500;
+    
+    // Store listener references for cleanup
+    let copyHandler = null;
+    let messageHandler = null;
+    let storageHandler = null;
 
     /**
      * Initialize content script
@@ -45,22 +50,22 @@ if (existingState?.initialized) {
         }
         console.log('CloudClip:DEBUG captureEnabled', { enabled: captureEnabled });
 
-        // Add copy event listener
-        document.addEventListener('copy', handleCopy, true);
+        // Add copy event listener (store reference for cleanup)
+        copyHandler = handleCopy;
+        document.addEventListener('copy', copyHandler, true);
 
-        // Listen for messages from background
-        chrome.runtime.onMessage.addListener(handleMessage);
-        state.onMessageListener = handleMessage;
+        // Listen for messages from background (store reference)
+        messageHandler = handleMessage;
+        chrome.runtime.onMessage.addListener(messageHandler);
 
-        // Listen for storage changes to react to setting toggles
-        const handleStorageChange = (changes, area) => {
+        // Listen for storage changes to react to setting toggles (store reference)
+        storageHandler = (changes, area) => {
             if (area === 'local' && changes.cloudclip_auto_capture) {
                 captureEnabled = changes.cloudclip_auto_capture.newValue !== false;
                 console.log('CloudClip: Auto-capture changed to:', captureEnabled);
             }
         };
-        chrome.storage.onChanged.addListener(handleStorageChange);
-        state.onStorageListener = handleStorageChange;
+        chrome.storage.onChanged.addListener(storageHandler);
 
         const isIframe = window !== window.top;
         console.log(`CloudClip: Content script initialized on ${window.location.href} (iframe: ${isIframe}, capture: ${captureEnabled})`);
@@ -232,15 +237,18 @@ if (existingState?.initialized) {
      * Clean up when content script is unloaded
      */
     function cleanup() {
-        document.removeEventListener('copy', handleCopy, true);
-        if (state.onMessageListener) {
-            chrome.runtime.onMessage.removeListener(state.onMessageListener);
+        if (copyHandler) {
+            document.removeEventListener('copy', copyHandler, true);
         }
-        if (state.onStorageListener) {
-            chrome.storage.onChanged.removeListener(state.onStorageListener);
+        if (messageHandler) {
+            chrome.runtime.onMessage.removeListener(messageHandler);
+        }
+        if (storageHandler) {
+            chrome.storage.onChanged.removeListener(storageHandler);
         }
         captureEnabled = false;
-        state.initialized = false;
+        // Allow re-initialization if page navigates back
+        window[CLOUDCLIP_INIT_KEY] = false;
     }
 
     // Handle page unload
@@ -248,4 +256,4 @@ if (existingState?.initialized) {
 
     // Initialize
     initialize();
-}
+} // end of initialization guard
