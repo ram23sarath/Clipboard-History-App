@@ -10,12 +10,17 @@ console.log('CloudClip:DEBUG content boot', {
     top: window === window.top
 });
 
+const CLOUDCLIP_STATE_KEY = '__cloudClipContentState';
+const existingState = window[CLOUDCLIP_STATE_KEY];
+
 // Prevent multiple injections
-if (window.cloudClipInjected) {
-    console.log('🟡 CloudClip: Content script already injected (duplicate run)');
+if (existingState?.initialized) {
+    console.log('🟡 CloudClip: Content script already initialized (duplicate run)');
 } else {
-    window.cloudClipInjected = true;
-    console.log('🟢 CloudClip: Setting cloudClipInjected = true');
+    const state = existingState || {};
+    state.initialized = true;
+    window[CLOUDCLIP_STATE_KEY] = state;
+    console.log('🟢 CloudClip: Setting content state initialized');
 
     /**
      * State tracking
@@ -45,14 +50,17 @@ if (window.cloudClipInjected) {
 
         // Listen for messages from background
         chrome.runtime.onMessage.addListener(handleMessage);
+        state.onMessageListener = handleMessage;
 
         // Listen for storage changes to react to setting toggles
-        chrome.storage.onChanged.addListener((changes, area) => {
+        const handleStorageChange = (changes, area) => {
             if (area === 'local' && changes.cloudclip_auto_capture) {
                 captureEnabled = changes.cloudclip_auto_capture.newValue !== false;
                 console.log('CloudClip: Auto-capture changed to:', captureEnabled);
             }
-        });
+        };
+        chrome.storage.onChanged.addListener(handleStorageChange);
+        state.onStorageListener = handleStorageChange;
 
         const isIframe = window !== window.top;
         console.log(`CloudClip: Content script initialized on ${window.location.href} (iframe: ${isIframe}, capture: ${captureEnabled})`);
@@ -225,7 +233,14 @@ if (window.cloudClipInjected) {
      */
     function cleanup() {
         document.removeEventListener('copy', handleCopy, true);
+        if (state.onMessageListener) {
+            chrome.runtime.onMessage.removeListener(state.onMessageListener);
+        }
+        if (state.onStorageListener) {
+            chrome.storage.onChanged.removeListener(state.onStorageListener);
+        }
         captureEnabled = false;
+        state.initialized = false;
     }
 
     // Handle page unload
